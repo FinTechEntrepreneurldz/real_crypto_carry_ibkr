@@ -1,6 +1,7 @@
 name: IBKR Paper Rebalance
 
 permissions:
+  actions: read
   contents: write
 
 on:
@@ -23,13 +24,56 @@ on:
 
 concurrency:
   group: ibkr-paper-rebalance
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
+  runner-preflight:
+    name: Verify IBKR runner availability
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check for online ibkr-paper runner
+        timeout-minutes: 2
+        env:
+          GH_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          body="$(mktemp)"
+          code="$(curl -sS -L -o "$body" -w "%{http_code}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPO}/actions/runners?per_page=100" || true)"
+
+          if [ "$code" != "200" ]; then
+            echo "::warning::Could not verify self-hosted runners via API (HTTP $code). If the rebalance job queues, start/configure the local runner or add a RUNNER_ADMIN_TOKEN secret with repository Administration read access."
+            exit 0
+          fi
+
+          python - "$body" <<'PY'
+          import json
+          import sys
+
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          matches = []
+          for runner in data.get("runners", []):
+              labels = {label.get("name") for label in runner.get("labels", [])}
+              if runner.get("status") == "online" and {"self-hosted", "ibkr-paper"}.issubset(labels):
+                  matches.append(runner.get("name") or str(runner.get("id")))
+
+          if not matches:
+              print("::error::No online self-hosted runner has labels: self-hosted, ibkr-paper. Configure and start the Mac runner before triggering this workflow.")
+              raise SystemExit(1)
+
+          print("Found online ibkr-paper runner(s): " + ", ".join(matches))
+          PY
+
   rebalance:
     name: Pull data, build artifact, submit paper rebalance
+    needs: runner-preflight
     runs-on: [self-hosted, ibkr-paper]
-    timeout-minutes: 45
+    timeout-minutes: 25
     env:
       IBKR_ACCOUNT: ${{ secrets.IBKR_ACCOUNT }}
       IBKR_HOST: ${{ vars.IBKR_HOST || '127.0.0.1' }}
@@ -53,16 +97,19 @@ jobs:
           clean: false
 
       - name: Set up Python
+        timeout-minutes: 5
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install package
+        timeout-minutes: 8
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e . pytest
 
       - name: Enforce paper-only account and port
+        timeout-minutes: 1
         run: |
           python - <<'PY'
           import os
@@ -79,6 +126,7 @@ jobs:
 
       - name: Decide whether this run should rebalance
         id: time_guard
+        timeout-minutes: 1
         run: |
           python - <<'PY'
           import os
@@ -97,12 +145,19 @@ jobs:
           print(f"run_rebalance={should_run}; {reason}")
           PY
 
+      - name: Preflight IBKR paper connection
+        if: steps.time_guard.outputs.run_rebalance == 'true'
+        timeout-minutes: 2
+        run: python scripts/preflight_ibkr_paper.py
+
       - name: Pull latest IBKR historical data
         if: steps.time_guard.outputs.run_rebalance == 'true'
+        timeout-minutes: 10
         run: python scripts/pull_ibkr_history.py
 
       - name: Build deployable artifact
         if: steps.time_guard.outputs.run_rebalance == 'true'
+        timeout-minutes: 5
         run: |
           python scripts/build_artifact.py \
             --curve-csv data/cme_curve.csv \
@@ -112,6 +167,7 @@ jobs:
 
       - name: Show status and plan
         if: steps.time_guard.outputs.run_rebalance == 'true'
+        timeout-minutes: 1
         run: |
           python - <<'PY'
           import json
@@ -124,14 +180,17 @@ jobs:
 
       - name: Dry run rebalance
         if: steps.time_guard.outputs.run_rebalance == 'true'
+        timeout-minutes: 3
         run: python scripts/run_ibkr_rebalance.py --artifact-dir artifacts/latest --dry-run
 
       - name: Submit paper rebalance
         if: steps.time_guard.outputs.run_rebalance == 'true' && env.IBKR_SUBMIT_ORDERS == 'true'
+        timeout-minutes: 5
         run: python scripts/run_ibkr_rebalance.py --artifact-dir artifacts/latest
 
       - name: Commit dashboard logs
         if: steps.time_guard.outputs.run_rebalance == 'true'
+        timeout-minutes: 3
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

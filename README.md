@@ -159,6 +159,33 @@ IBKR_LIVE_TRADING_ACK=I_UNDERSTAND_THIS_SUBMITS_REAL_ORDERS
 
 Do not unlock live trading until paper execution has matched the intended behavior over multiple runs.
 
+## GitHub Actions Runner
+
+The daily paper rebalance needs a local self-hosted runner because IBKR TWS/Gateway is reachable only from the Mac running it. A GitHub-hosted runner cannot submit to `127.0.0.1:7497`.
+
+The runner must be registered to this repository with the custom label:
+
+```text
+ibkr-paper
+```
+
+If the `IBKR Paper Rebalance` workflow queues for a long time and shows no step logs, no matching runner is online. Configure/start it from the runner directory:
+
+```bash
+cd ~/actions-runner
+./config.sh --url https://github.com/FinTechEntrepreneurldz/real_crypto_carry_ibkr \
+  --token <registration-token-from-github> \
+  --name Lucass-MBP-ibkr-paper \
+  --labels ibkr-paper \
+  --unattended \
+  --replace
+./svc.sh install
+./svc.sh start
+./svc.sh status
+```
+
+Then keep TWS or IB Gateway logged into the paper account before the 9:30 AM New York rebalance window.
+
 ## Reality Check
 
 No code can guarantee a high Sharpe or make-money outcome. This repo is built to avoid self-deception: it blocks synthetic/proxy data, separates validation from test, includes costs and financing assumptions, and refuses deployability unless the real OOS numbers meet the configured gates.
