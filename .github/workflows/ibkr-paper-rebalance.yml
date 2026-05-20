@@ -1,0 +1,113 @@
+name: IBKR Paper Rebalance
+
+on:
+  workflow_dispatch:
+    inputs:
+      submit_orders:
+        description: Submit paper orders after the dry run
+        required: true
+        type: choice
+        options:
+          - "true"
+          - "false"
+        default: "true"
+  schedule:
+    # 10:35 AM America/New_York during daylight saving time.
+    # GitHub schedules are UTC; adjust this if you want a different season-safe time.
+    - cron: "35 14 * * 1-5"
+
+concurrency:
+  group: ibkr-paper-rebalance
+  cancel-in-progress: false
+
+jobs:
+  rebalance:
+    name: Pull data, build artifact, submit paper rebalance
+    runs-on: [self-hosted, ibkr-paper]
+    timeout-minutes: 45
+    env:
+      IBKR_ACCOUNT: ${{ secrets.IBKR_ACCOUNT }}
+      IBKR_HOST: ${{ vars.IBKR_HOST || '127.0.0.1' }}
+      IBKR_PORT: ${{ vars.IBKR_PORT || '7497' }}
+      IBKR_CLIENT_ID: ${{ vars.IBKR_CLIENT_ID || '17' }}
+      IBKR_HISTORY_CLIENT_ID: ${{ vars.IBKR_HISTORY_CLIENT_ID || '92' }}
+      IBKR_TIMEOUT: ${{ vars.IBKR_TIMEOUT || '15' }}
+      IBKR_REQUIRE_PAPER_TRADING: "true"
+      IBKR_ALLOW_LIVE_TRADING: "false"
+      IBKR_ALLOW_MARKET_ORDERS: "false"
+      IBKR_SUBMIT_ORDERS: ${{ github.event.inputs.submit_orders || 'true' }}
+      IBKR_LONG_LEG_ORDER_TYPE: ${{ vars.IBKR_LONG_LEG_ORDER_TYPE || 'LIMIT' }}
+      IBKR_LONG_LEG_LIMIT_OFFSET_BPS: ${{ vars.IBKR_LONG_LEG_LIMIT_OFFSET_BPS || '5' }}
+      IBKR_ORDER_WAIT_SECONDS: ${{ vars.IBKR_ORDER_WAIT_SECONDS || '45' }}
+      IBKR_CANCEL_UNFILLED: ${{ vars.IBKR_CANCEL_UNFILLED || 'true' }}
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest
+
+      - name: Enforce paper-only account and port
+        run: |
+          python - <<'PY'
+          import os
+          account = os.environ.get("IBKR_ACCOUNT", "").strip()
+          port = int(os.environ.get("IBKR_PORT", "7497"))
+          if not account:
+              raise SystemExit("IBKR_ACCOUNT secret is required.")
+          if not account.upper().startswith("DU"):
+              raise SystemExit("IBKR_ACCOUNT must be a paper account id starting with DU.")
+          if port not in {7497, 4002}:
+              raise SystemExit("Paper rebalance workflow only allows TWS 7497 or IB Gateway 4002.")
+          print(f"Paper safety checks passed on port {port}.")
+          PY
+
+      - name: Pull latest IBKR historical data
+        run: python scripts/pull_ibkr_history.py
+
+      - name: Build deployable artifact
+        run: |
+          python scripts/build_artifact.py \
+            --curve-csv data/cme_curve.csv \
+            --long-prices-csv data/long_prices.csv \
+            --out-dir artifacts/latest \
+            --data-source ibkr_historical
+
+      - name: Show status and plan
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          status = json.loads(Path("artifacts/latest/status.json").read_text())
+          plan = json.loads(Path("artifacts/latest/execution_plan_latest.json").read_text())
+          print(json.dumps(status, indent=2))
+          print(json.dumps(plan, indent=2))
+          PY
+
+      - name: Dry run rebalance
+        run: python scripts/run_ibkr_rebalance.py --artifact-dir artifacts/latest --dry-run
+
+      - name: Submit paper rebalance
+        if: env.IBKR_SUBMIT_ORDERS == 'true'
+        run: python scripts/run_ibkr_rebalance.py --artifact-dir artifacts/latest
+
+      - name: Upload artifact bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ibkr-paper-rebalance-artifacts
+          path: |
+            artifacts/latest/artifacts.zip
+            artifacts/latest/status.json
+            artifacts/latest/execution_plan_latest.json
+            artifacts/latest/performance_summary.csv

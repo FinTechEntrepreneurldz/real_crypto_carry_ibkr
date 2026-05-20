@@ -76,8 +76,11 @@ class IBKRCarryExecutor:
         account = os.environ.get("IBKR_ACCOUNT", "").strip()
         if not account:
             raise RuntimeError("IBKR_ACCOUNT must be set before submitting orders.")
-        if env_bool("IBKR_REQUIRE_PAPER_TRADING", True) and self.conn.port not in PAPER_PORTS:
-            raise RuntimeError("Paper-only mode permits only TWS 7497 or IB Gateway 4002.")
+        if env_bool("IBKR_REQUIRE_PAPER_TRADING", True):
+            if self.conn.port not in PAPER_PORTS:
+                raise RuntimeError("Paper-only mode permits only TWS 7497 or IB Gateway 4002.")
+            if not account.upper().startswith("DU"):
+                raise RuntimeError("Paper-only mode requires an IBKR paper account id that starts with DU.")
         if self.conn.port in LIVE_PORTS:
             if not env_bool("IBKR_ALLOW_LIVE_TRADING", False) or os.environ.get("IBKR_LIVE_TRADING_ACK", "") != LIVE_ACK:
                 raise RuntimeError(f"Live trading requires IBKR_ALLOW_LIVE_TRADING=true and IBKR_LIVE_TRADING_ACK={LIVE_ACK}.")

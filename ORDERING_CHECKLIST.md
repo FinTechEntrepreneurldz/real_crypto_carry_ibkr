@@ -3,7 +3,7 @@
 ## Before Any Order Submission
 
 1. Build an artifact from accepted real data.
-2. Confirm `status.json` says `DEPLOYABLE_IBKR_CARRY`.
+2. Confirm `status.json` says `DEPLOYABLE_IBKR_ETF_REGIME` or `DEPLOYABLE_IBKR_CARRY`.
 3. Start TWS or IB Gateway on the same machine that will run the script.
 4. Enable API socket clients.
 5. Keep paper trading on first:
@@ -20,6 +20,8 @@ Use `4002` instead of `7497` for paper IB Gateway.
 ```text
 IBKR_ACCOUNT=DUxxxxxxx
 ```
+
+Paper-only execution now rejects accounts that do not start with `DU`.
 
 7. Validate contracts:
 
@@ -47,6 +49,45 @@ Then run:
 ```bash
 python scripts/run_ibkr_rebalance.py --artifact-dir artifacts/latest
 ```
+
+## Daily GitHub Actions Paper Rebalance
+
+The workflow `.github/workflows/ibkr-paper-rebalance.yml` is designed for a self-hosted runner on the same machine or network as TWS/IB Gateway. GitHub-hosted runners cannot connect to your local `127.0.0.1:7497` TWS session.
+
+Required runner label:
+
+```text
+self-hosted, ibkr-paper
+```
+
+Required GitHub secret:
+
+```text
+IBKR_ACCOUNT=DUxxxxxxx
+```
+
+Optional GitHub variables:
+
+```text
+IBKR_HOST=127.0.0.1
+IBKR_PORT=7497
+IBKR_CLIENT_ID=17
+IBKR_HISTORY_CLIENT_ID=92
+IBKR_LONG_LEG_ORDER_TYPE=LIMIT
+IBKR_LONG_LEG_LIMIT_OFFSET_BPS=5
+IBKR_ORDER_WAIT_SECONDS=45
+IBKR_CANCEL_UNFILLED=true
+```
+
+The workflow:
+
+1. Pulls fresh IBKR historical prices.
+2. Builds `artifacts/latest/artifacts.zip`.
+3. Prints `status.json` and `execution_plan_latest.json`.
+4. Runs a dry run.
+5. Submits paper orders only if the artifact is deployable and paper safety checks pass.
+
+It runs Monday-Friday at `14:35 UTC`, which is `10:35 AM America/New_York` during daylight saving time, and can also be triggered manually from the Actions tab.
 
 ## Live Unlock
 

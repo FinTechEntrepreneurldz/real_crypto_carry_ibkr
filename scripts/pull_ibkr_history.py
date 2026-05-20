@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 
 import pandas as pd
 from ib_insync import IB, Contract, Stock
@@ -11,7 +12,12 @@ def main() -> None:
     out = Path("data")
     out.mkdir(exist_ok=True)
     ib = IB()
-    ib.connect("127.0.0.1", int(__import__("os").environ.get("IBKR_PORT", "7497")), clientId=92, timeout=15)
+    ib.connect(
+        os.environ.get("IBKR_HOST", "127.0.0.1"),
+        int(os.environ.get("IBKR_PORT", "7497")),
+        clientId=int(os.environ.get("IBKR_HISTORY_CLIENT_ID", "92")),
+        timeout=float(os.environ.get("IBKR_TIMEOUT", "15")),
+    )
     try:
         specs = {
             "BTC": {
