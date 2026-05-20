@@ -1,6 +1,6 @@
 from ib_insync import Stock
 
-from real_crypto_carry_ibkr.ibkr_execution import IBKRCarryExecutor, leg_reference_price
+from real_crypto_carry_ibkr.ibkr_execution import IBKRCarryExecutor, leg_reference_price, side_from_signed_qty, signed_qty
 
 
 def test_leg_reference_price_prefers_explicit_reference():
@@ -16,6 +16,13 @@ def test_leg_reference_price_falls_back_to_notional_per_share():
 def test_future_reference_price_uses_multiplier():
     leg = {"notional_usd": 1000, "quantity_estimate": 2, "contract_multiplier_coin": 0.1}
     assert leg_reference_price(leg, is_future=True) == 5000.0
+
+
+def test_signed_qty_helpers():
+    assert signed_qty("BUY", 10) == 10
+    assert signed_qty("SELL", 10) == -10
+    assert side_from_signed_qty(5) == "BUY"
+    assert side_from_signed_qty(-5) == "SELL"
 
 
 def test_make_order_sets_tif_and_uses_fallback_quote(monkeypatch):

@@ -68,6 +68,15 @@ def leg_reference_price(leg: dict[str, Any], is_future: bool = False) -> float:
     return notional / qty
 
 
+def signed_qty(side: str, qty: int | float) -> int:
+    q = abs(int(round(float(qty))))
+    return q if str(side).upper() == "BUY" else -q
+
+
+def side_from_signed_qty(qty: int | float) -> str:
+    return "BUY" if float(qty) > 0 else "SELL"
+
+
 @dataclass
 class IBKRConfig:
     host: str = "127.0.0.1"
@@ -229,6 +238,63 @@ class IBKRCarryExecutor:
             return trade
         return None
 
+    def current_position_qty(self, contract: Contract) -> int:
+        account = os.environ.get("IBKR_ACCOUNT", "").strip()
+        expected_con_id = int(getattr(contract, "conId", 0) or 0)
+        try:
+            positions = self.ib.positions()
+        except Exception:
+            positions = []
+        total = 0.0
+        for pos in positions:
+            if account and str(pos.account) != account:
+                continue
+            con_id = int(getattr(pos.contract, "conId", 0) or 0)
+            if expected_con_id and con_id == expected_con_id:
+                total += float(pos.position or 0)
+        return int(round(total))
+
+    def open_order_signed_qty(self, contract: Contract) -> int:
+        expected_con_id = int(getattr(contract, "conId", 0) or 0)
+        total = 0.0
+        try:
+            self.ib.reqAllOpenOrders()
+            self.ib.sleep(env_float("IBKR_OPEN_ORDERS_SLEEP_SECONDS", 1.0))
+        except Exception:
+            try:
+                self.ib.reqOpenOrders()
+                self.ib.sleep(env_float("IBKR_OPEN_ORDERS_SLEEP_SECONDS", 1.0))
+            except Exception:
+                pass
+        for trade in self.ib.openTrades():
+            status = str(trade.orderStatus.status or "").lower()
+            if status in DONE_STATUSES:
+                continue
+            open_con_id = int(getattr(trade.contract, "conId", 0) or 0)
+            if expected_con_id and open_con_id and open_con_id != expected_con_id:
+                continue
+            remaining = float(trade.orderStatus.remaining or 0)
+            if remaining <= 0:
+                remaining = float(trade.order.totalQuantity or 0) - float(trade.orderStatus.filled or 0)
+            if remaining <= 0:
+                continue
+            total += signed_qty(str(trade.order.action or ""), remaining)
+        return int(round(total))
+
+    def rebalance_delta(self, contract: Contract, leg: dict[str, Any]) -> dict[str, Any]:
+        target = signed_qty(str(leg["side"]), int(leg["quantity_estimate"]))
+        current = self.current_position_qty(contract)
+        open_qty = self.open_order_signed_qty(contract)
+        delta = target - current - open_qty
+        return {
+            "target_qty": int(target),
+            "current_qty": int(current),
+            "open_order_qty": int(open_qty),
+            "delta_qty": int(delta),
+            "side": side_from_signed_qty(delta) if delta else str(leg["side"]).upper(),
+            "quantity": abs(int(delta)),
+        }
+
     def wait_trade(self, trade, wait_seconds: float) -> dict[str, Any]:
         end = time.time() + wait_seconds
         while time.time() < end:
@@ -267,16 +333,16 @@ class IBKRCarryExecutor:
 
             fut_stat = {"filled_qty": 0.0}
             if future_leg and future is not None and fut_qty > 0:
-                existing = self.find_matching_open_trade(future, future_leg["side"], fut_qty)
-                if existing is not None:
-                    fut_stat = self.trade_status(existing, existing=True)
-                    item["legs"].append({"leg": "future", "diag": "matched_existing_open_order", **fut_stat})
+                fut_delta = self.rebalance_delta(future, {**future_leg, "quantity_estimate": fut_qty})
+                if fut_delta["quantity"] <= 0:
+                    fut_stat = {"filled_qty": 0.0}
+                    item["legs"].append({"leg": "future", "diag": "already_at_target_or_open", **fut_delta})
                     results.append(item)
                     continue
                 fut_order, fut_diag = self.make_order(
                     future,
-                    future_leg["side"],
-                    fut_qty,
+                    fut_delta["side"],
+                    fut_delta["quantity"],
                     is_future=True,
                     fallback_ref=leg_reference_price(future_leg, is_future=True),
                 )
@@ -291,17 +357,16 @@ class IBKRCarryExecutor:
                 fill_ratio = min(1.0, fut_stat["filled_qty"] / max(fut_qty, 1))
                 if not future_leg:
                     fill_ratio = 1.0
-                adj_long_qty = max(1, int(round(long_qty * fill_ratio)))
-                existing = self.find_matching_open_trade(stock, long_leg["side"], adj_long_qty)
-                if existing is not None:
-                    stock_stat = self.trade_status(existing, existing=True)
-                    item["legs"].append({"leg": "long", "diag": "matched_existing_open_order", **stock_stat})
+                adj_target_qty = max(1, int(round(long_qty * fill_ratio)))
+                long_delta = self.rebalance_delta(stock, {**long_leg, "quantity_estimate": adj_target_qty})
+                if long_delta["quantity"] <= 0:
+                    item["legs"].append({"leg": "long", "diag": "already_at_target_or_open", **long_delta})
                     results.append(item)
                     continue
                 stock_order, stock_diag = self.make_order(
                     stock,
-                    long_leg["side"],
-                    adj_long_qty,
+                    long_delta["side"],
+                    long_delta["quantity"],
                     is_future=False,
                     fallback_ref=leg_reference_price(long_leg),
                 )

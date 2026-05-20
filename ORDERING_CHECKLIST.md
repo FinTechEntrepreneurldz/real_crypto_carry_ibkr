@@ -85,9 +85,13 @@ The workflow:
 2. Builds `artifacts/latest/artifacts.zip`.
 3. Prints `status.json` and `execution_plan_latest.json`.
 4. Runs a dry run.
-5. Submits paper orders only if the artifact is deployable and paper safety checks pass.
+5. Submits paper delta orders only if the artifact is deployable and paper safety checks pass.
 
-It runs Monday-Friday at `14:35 UTC`, which is `10:35 AM America/New_York` during daylight saving time, and can also be triggered manually from the Actions tab.
+The workflow checks current IBKR positions and open orders before submitting. If the account is already at target or has matching open orders, it skips instead of stacking duplicate orders.
+
+It runs Monday-Friday at `13:30 UTC` and `14:30 UTC` with a New York-time guard, so only the run that lands in the `9 AM America/New_York` hour continues. It can also be triggered manually from the Actions tab.
+
+The default workflow order type is paper-market (`IBKR_LONG_LEG_ORDER_TYPE=MKT`, `IBKR_ALLOW_MARKET_ORDERS=true`). Override those repo variables if you want limit orders instead.
 
 ## Live Unlock
 

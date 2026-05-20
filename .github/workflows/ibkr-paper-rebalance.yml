@@ -12,9 +12,11 @@ on:
           - "false"
         default: "true"
   schedule:
-    # 10:35 AM America/New_York during daylight saving time.
-    # GitHub schedules are UTC; adjust this if you want a different season-safe time.
-    - cron: "35 14 * * 1-5"
+    # GitHub schedules are UTC. These two entries cover 9:30 AM New York
+    # during daylight saving and standard time; a guard step below skips
+    # whichever one is not currently the 9 AM New York hour.
+    - cron: "30 13 * * 1-5"
+    - cron: "30 14 * * 1-5"
 
 concurrency:
   group: ibkr-paper-rebalance
@@ -34,9 +36,9 @@ jobs:
       IBKR_TIMEOUT: ${{ vars.IBKR_TIMEOUT || '15' }}
       IBKR_REQUIRE_PAPER_TRADING: "true"
       IBKR_ALLOW_LIVE_TRADING: "false"
-      IBKR_ALLOW_MARKET_ORDERS: "false"
+      IBKR_ALLOW_MARKET_ORDERS: "true"
       IBKR_SUBMIT_ORDERS: ${{ github.event.inputs.submit_orders || 'true' }}
-      IBKR_LONG_LEG_ORDER_TYPE: ${{ vars.IBKR_LONG_LEG_ORDER_TYPE || 'LIMIT' }}
+      IBKR_LONG_LEG_ORDER_TYPE: ${{ vars.IBKR_LONG_LEG_ORDER_TYPE || 'MKT' }}
       IBKR_LONG_LEG_LIMIT_OFFSET_BPS: ${{ vars.IBKR_LONG_LEG_LIMIT_OFFSET_BPS || '5' }}
       IBKR_ORDER_WAIT_SECONDS: ${{ vars.IBKR_ORDER_WAIT_SECONDS || '45' }}
       IBKR_CANCEL_UNFILLED: ${{ vars.IBKR_CANCEL_UNFILLED || 'true' }}
@@ -72,10 +74,32 @@ jobs:
           print(f"Paper safety checks passed on port {port}.")
           PY
 
+      - name: Decide whether this run should rebalance
+        id: time_guard
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import datetime
+          from zoneinfo import ZoneInfo
+
+          event_name = os.environ.get("GITHUB_EVENT_NAME", "")
+          should_run = True
+          reason = "manual run"
+          if event_name == "schedule":
+              now = datetime.now(ZoneInfo("America/New_York"))
+              should_run = now.weekday() < 5 and now.hour == 9
+              reason = f"New York time is {now:%Y-%m-%d %H:%M:%S %Z}"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"run_rebalance={str(should_run).lower()}\n")
+          print(f"run_rebalance={should_run}; {reason}")
+          PY
+
       - name: Pull latest IBKR historical data
+        if: steps.time_guard.outputs.run_rebalance == 'true'
         run: python scripts/pull_ibkr_history.py
 
       - name: Build deployable artifact
+        if: steps.time_guard.outputs.run_rebalance == 'true'
         run: |
           python scripts/build_artifact.py \
             --curve-csv data/cme_curve.csv \
@@ -84,6 +108,7 @@ jobs:
             --data-source ibkr_historical
 
       - name: Show status and plan
+        if: steps.time_guard.outputs.run_rebalance == 'true'
         run: |
           python - <<'PY'
           import json
@@ -95,14 +120,15 @@ jobs:
           PY
 
       - name: Dry run rebalance
+        if: steps.time_guard.outputs.run_rebalance == 'true'
         run: python scripts/run_ibkr_rebalance.py --artifact-dir artifacts/latest --dry-run
 
       - name: Submit paper rebalance
-        if: env.IBKR_SUBMIT_ORDERS == 'true'
+        if: steps.time_guard.outputs.run_rebalance == 'true' && env.IBKR_SUBMIT_ORDERS == 'true'
         run: python scripts/run_ibkr_rebalance.py --artifact-dir artifacts/latest
 
       - name: Upload artifact bundle
-        if: always()
+        if: always() && steps.time_guard.outputs.run_rebalance == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ibkr-paper-rebalance-artifacts
