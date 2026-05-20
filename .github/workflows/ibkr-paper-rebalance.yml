@@ -98,22 +98,17 @@ jobs:
         with:
           clean: false
 
-      - name: Set up Python
-        timeout-minutes: 5
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
       - name: Install package
         timeout-minutes: 8
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e . pytest
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -e . pytest
 
       - name: Enforce paper-only account and port
         timeout-minutes: 1
         run: |
-          python - <<'PY'
+          .venv/bin/python - <<'PY'
           import os
           account = os.environ.get("IBKR_ACCOUNT", "").strip()
           port = int(os.environ.get("IBKR_PORT", "7497"))
@@ -130,7 +125,7 @@ jobs:
         id: time_guard
         timeout-minutes: 1
         run: |
-          python - <<'PY'
+          .venv/bin/python - <<'PY'
           import os
           from datetime import datetime
           from zoneinfo import ZoneInfo
@@ -150,18 +145,18 @@ jobs:
       - name: Preflight IBKR paper connection
         if: steps.time_guard.outputs.run_rebalance == 'true'
         timeout-minutes: 2
-        run: python scripts/preflight_ibkr_paper.py
+        run: .venv/bin/python scripts/preflight_ibkr_paper.py
 
       - name: Pull latest IBKR historical data
         if: steps.time_guard.outputs.run_rebalance == 'true'
         timeout-minutes: 10
-        run: python scripts/pull_ibkr_history.py
+        run: .venv/bin/python scripts/pull_ibkr_history.py
 
       - name: Build deployable artifact
         if: steps.time_guard.outputs.run_rebalance == 'true'
         timeout-minutes: 5
         run: |
-          python scripts/build_artifact.py \
+          .venv/bin/python scripts/build_artifact.py \
             --curve-csv data/cme_curve.csv \
             --long-prices-csv data/long_prices.csv \
             --out-dir artifacts/latest \
@@ -171,7 +166,7 @@ jobs:
         if: steps.time_guard.outputs.run_rebalance == 'true'
         timeout-minutes: 1
         run: |
-          python - <<'PY'
+          .venv/bin/python - <<'PY'
           import json
           from pathlib import Path
           status = json.loads(Path("artifacts/latest/status.json").read_text())
@@ -183,12 +178,12 @@ jobs:
       - name: Dry run rebalance
         if: steps.time_guard.outputs.run_rebalance == 'true'
         timeout-minutes: 3
-        run: python scripts/run_ibkr_rebalance.py --artifact-dir artifacts/latest --dry-run
+        run: .venv/bin/python scripts/run_ibkr_rebalance.py --artifact-dir artifacts/latest --dry-run
 
       - name: Submit paper rebalance
         if: steps.time_guard.outputs.run_rebalance == 'true' && env.IBKR_SUBMIT_ORDERS == 'true'
         timeout-minutes: 5
-        run: python scripts/run_ibkr_rebalance.py --artifact-dir artifacts/latest
+        run: .venv/bin/python scripts/run_ibkr_rebalance.py --artifact-dir artifacts/latest
 
       - name: Commit dashboard logs
         if: steps.time_guard.outputs.run_rebalance == 'true'
