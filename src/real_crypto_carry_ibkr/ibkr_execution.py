@@ -45,6 +45,28 @@ def round_to_tick(px: float, tick: float, side: str) -> float:
     return float(round(rounded, 10))
 
 
+def _positive_float(value: Any, default: float = 0.0) -> float:
+    try:
+        out = float(value)
+    except Exception:
+        return float(default)
+    return out if out > 0 else float(default)
+
+
+def leg_reference_price(leg: dict[str, Any], is_future: bool = False) -> float:
+    ref = _positive_float(leg.get("reference_price"))
+    if ref:
+        return ref
+    notional = _positive_float(leg.get("notional_usd"))
+    qty = _positive_float(leg.get("quantity_estimate"))
+    if not notional or not qty:
+        return 0.0
+    if is_future:
+        multiplier = _positive_float(leg.get("contract_multiplier_coin"), 1.0)
+        return notional / max(qty * multiplier, 1e-9)
+    return notional / qty
+
+
 @dataclass
 class IBKRConfig:
     host: str = "127.0.0.1"
@@ -130,7 +152,7 @@ class IBKRCarryExecutor:
             pass
         return out
 
-    def make_order(self, contract: Contract, side: str, qty: int, is_future: bool):
+    def make_order(self, contract: Contract, side: str, qty: int, is_future: bool, fallback_ref: float = 0.0):
         account = os.environ.get("IBKR_ACCOUNT", "").strip()
         order_type = os.environ.get("IBKR_FUTURES_ORDER_TYPE" if is_future else "IBKR_LONG_LEG_ORDER_TYPE", "LIMIT").upper()
         if order_type in {"MKT", "MARKET"}:
@@ -142,8 +164,14 @@ class IBKRCarryExecutor:
         q = self.quote(contract)
         ref = q["ask"] if side.upper() == "BUY" else q["bid"]
         ref = ref or q["market"] or q["last"] or q["close"]
+        used_fallback = False
         if not ref:
-            raise RuntimeError(f"No usable quote for {contract}")
+            if not env_bool("IBKR_ALLOW_HISTORICAL_LIMIT_FALLBACK", True):
+                raise RuntimeError(f"No usable quote for {contract}")
+            ref = _positive_float(fallback_ref)
+            used_fallback = bool(ref)
+        if not ref:
+            raise RuntimeError(f"No usable quote or artifact reference price for {contract}")
         if is_future:
             tick = env_float("IBKR_FUTURE_MIN_TICK", 0.5)
             offset = env_float("IBKR_LIMIT_OFFSET_TICKS", 2.0) * tick
@@ -157,7 +185,8 @@ class IBKRCarryExecutor:
         order = LimitOrder(side, abs(int(qty)), float(limit_px))
         if account:
             order.account = account
-        return order, f"limit={limit_px};quote={q}"
+        fallback_diag = f";fallback_ref={ref}" if used_fallback else ""
+        return order, f"limit={limit_px};quote={q}{fallback_diag}"
 
     def wait_trade(self, trade, wait_seconds: float) -> dict[str, Any]:
         end = time.time() + wait_seconds
@@ -203,7 +232,13 @@ class IBKRCarryExecutor:
 
             fut_stat = {"filled_qty": 0.0}
             if future_leg and future is not None and fut_qty > 0:
-                fut_order, fut_diag = self.make_order(future, future_leg["side"], fut_qty, is_future=True)
+                fut_order, fut_diag = self.make_order(
+                    future,
+                    future_leg["side"],
+                    fut_qty,
+                    is_future=True,
+                    fallback_ref=leg_reference_price(future_leg, is_future=True),
+                )
                 fut_trade = self.ib.placeOrder(future, fut_order)
                 fut_stat = self.wait_trade(fut_trade, wait_seconds)
                 if cancel_unfilled and fut_stat["remaining_qty"] > 0:
@@ -216,7 +251,13 @@ class IBKRCarryExecutor:
                 if not future_leg:
                     fill_ratio = 1.0
                 adj_long_qty = max(1, int(round(long_qty * fill_ratio)))
-                stock_order, stock_diag = self.make_order(stock, long_leg["side"], adj_long_qty, is_future=False)
+                stock_order, stock_diag = self.make_order(
+                    stock,
+                    long_leg["side"],
+                    adj_long_qty,
+                    is_future=False,
+                    fallback_ref=leg_reference_price(long_leg),
+                )
                 stock_trade = self.ib.placeOrder(stock, stock_order)
                 stock_stat = self.wait_trade(stock_trade, wait_seconds)
                 item["legs"].append({"leg": "long", "diag": stock_diag, **stock_stat})
