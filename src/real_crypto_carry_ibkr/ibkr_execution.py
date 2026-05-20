@@ -77,6 +77,15 @@ def side_from_signed_qty(qty: int | float) -> str:
     return "BUY" if float(qty) > 0 else "SELL"
 
 
+def summary_key(tag: str) -> str:
+    out = []
+    for i, ch in enumerate(str(tag or "")):
+        if ch.isupper() and i > 0:
+            out.append("_")
+        out.append(ch.lower())
+    return "".join(out).replace("__", "_").strip("_")
+
+
 @dataclass
 class IBKRConfig:
     host: str = "127.0.0.1"
@@ -160,6 +169,31 @@ class IBKRCarryExecutor:
             self.ib.cancelMktData(contract)
         except Exception:
             pass
+        return out
+
+    def account_summary(self) -> dict[str, Any]:
+        account = os.environ.get("IBKR_ACCOUNT", "").strip()
+        try:
+            rows = self.ib.accountSummary(account=account or "")
+        except TypeError:
+            rows = self.ib.accountSummary()
+        out: dict[str, Any] = {"account": account}
+        for row in rows:
+            if account and str(getattr(row, "account", "")) != account:
+                continue
+            tag = str(getattr(row, "tag", "") or "")
+            key = summary_key(tag)
+            value = getattr(row, "value", "")
+            try:
+                parsed: Any = float(value)
+            except Exception:
+                parsed = value
+            out[key] = parsed
+            if tag == "NetLiquidation":
+                out["net_liquidation"] = parsed
+                out["currency"] = getattr(row, "currency", "") or "USD"
+        if "net_liquidation" not in out:
+            raise RuntimeError("IBKR account summary did not include NetLiquidation.")
         return out
 
     def make_order(self, contract: Contract, side: str, qty: int, is_future: bool, fallback_ref: float = 0.0):

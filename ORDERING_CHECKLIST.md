@@ -89,6 +89,8 @@ The workflow:
 
 The workflow checks current IBKR positions and open orders before submitting. If the account is already at target or has matching open orders, it skips instead of stacking duplicate orders.
 
+After each non-dry run, it writes IBKR `NetLiquidation` into `logs/portfolio/portfolio.csv`, `logs/decisions/latest_decision.csv`, and `logs/health/health_status.json`, then commits those dashboard logs back to GitHub so the investor site can display the current paper account value.
+
 It runs Monday-Friday at `13:30 UTC` and `14:30 UTC` with a New York-time guard, so only the run that lands in the `9 AM America/New_York` hour continues. It can also be triggered manually from the Actions tab.
 
 The default workflow order type is paper-market (`IBKR_LONG_LEG_ORDER_TYPE=MKT`, `IBKR_ALLOW_MARKET_ORDERS=true`). Override those repo variables if you want limit orders instead.

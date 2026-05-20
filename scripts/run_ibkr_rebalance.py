@@ -6,6 +6,7 @@ import json
 import os
 
 from real_crypto_carry_ibkr.config import read_json
+from real_crypto_carry_ibkr.dashboard_logs import mask_account, write_dashboard_logs
 from real_crypto_carry_ibkr.ibkr_execution import IBKRCarryExecutor, IBKRConfig, load_execution_plan, env_bool, env_float, env_int
 
 
@@ -57,7 +58,28 @@ def main() -> None:
     )
     with IBKRCarryExecutor(conn) as executor:
         results = executor.execute_plan(plan, dry_run=dry_run)
-    print(json.dumps({"dry_run": dry_run, "results": results}, indent=2, default=str))
+        account_summary = executor.account_summary()
+        dashboard_logs = write_dashboard_logs(
+            "logs",
+            account_summary,
+            results,
+            submit_orders=env_bool("IBKR_SUBMIT_ORDERS", False),
+        )
+    print(
+        json.dumps(
+            {
+                "dry_run": dry_run,
+                "results": results,
+                "account_summary": {
+                    **account_summary,
+                    "account": mask_account(account_summary.get("account")),
+                },
+                "dashboard_logs": dashboard_logs,
+            },
+            indent=2,
+            default=str,
+        )
+    )
 
 
 if __name__ == "__main__":
