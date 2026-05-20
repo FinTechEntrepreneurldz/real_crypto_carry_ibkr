@@ -1,0 +1,2 @@
+timestamp_utc,portfolio_value,net_liquidation,currency,account_status,source,action,submit_orders
+2026-05-20T11:26:28.097972+00:00,1000490.05,1000490.05,USD,connected,ibkr_account_summary_net_liquidation,paper_rebalance,True
