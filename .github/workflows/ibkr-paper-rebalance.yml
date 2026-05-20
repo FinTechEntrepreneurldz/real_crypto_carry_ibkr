@@ -47,7 +47,7 @@ jobs:
             "https://api.github.com/repos/${REPO}/actions/runners?per_page=100" || true)"
 
           if [ "$code" != "200" ]; then
-            echo "::warning::Could not verify self-hosted runners via API (HTTP $code). If the rebalance job queues, start/configure the local runner or add a RUNNER_ADMIN_TOKEN secret with repository Administration read access."
+            echo "::warning::Could not verify self-hosted runners via API (HTTP $code). If the rebalance job queues, start/configure the local macOS repo runner or add a RUNNER_ADMIN_TOKEN secret with repository Administration read access."
             exit 0
           fi
 
@@ -59,20 +59,22 @@ jobs:
           matches = []
           for runner in data.get("runners", []):
               labels = {label.get("name") for label in runner.get("labels", [])}
-              if runner.get("status") == "online" and {"self-hosted", "ibkr-paper"}.issubset(labels):
+              has_ibkr_label = {"self-hosted", "ibkr-paper"}.issubset(labels)
+              has_default_mac_label = {"self-hosted", "macOS", "X64"}.issubset(labels)
+              if runner.get("status") == "online" and (has_ibkr_label or has_default_mac_label):
                   matches.append(runner.get("name") or str(runner.get("id")))
 
           if not matches:
-              print("::error::No online self-hosted runner has labels: self-hosted, ibkr-paper. Configure and start the Mac runner before triggering this workflow.")
+              print("::error::No online repository macOS self-hosted runner found. Configure and start the Mac runner before triggering this workflow.")
               raise SystemExit(1)
 
-          print("Found online ibkr-paper runner(s): " + ", ".join(matches))
+          print("Found online Mac runner(s): " + ", ".join(matches))
           PY
 
   rebalance:
     name: Pull data, build artifact, submit paper rebalance
     needs: runner-preflight
-    runs-on: [self-hosted, ibkr-paper]
+    runs-on: [self-hosted, macOS, X64]
     timeout-minutes: 25
     env:
       IBKR_ACCOUNT: ${{ secrets.IBKR_ACCOUNT }}

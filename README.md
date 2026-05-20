@@ -163,10 +163,10 @@ Do not unlock live trading until paper execution has matched the intended behavi
 
 The daily paper rebalance needs a local self-hosted runner because IBKR TWS/Gateway is reachable only from the Mac running it. A GitHub-hosted runner cannot submit to `127.0.0.1:7497`.
 
-The runner must be registered to this repository with the custom label:
+The runner must be registered to this repository. The workflow uses the default macOS runner labels:
 
 ```text
-ibkr-paper
+self-hosted, macOS, X64
 ```
 
 If the `IBKR Paper Rebalance` workflow queues for a long time and shows no step logs, no matching runner is online. Configure/start it from the runner directory:
@@ -176,7 +176,6 @@ cd ~/actions-runner
 ./config.sh --url https://github.com/FinTechEntrepreneurldz/real_crypto_carry_ibkr \
   --token <registration-token-from-github> \
   --name Lucass-MBP-ibkr-paper \
-  --labels ibkr-paper \
   --unattended \
   --replace
 ./svc.sh install
