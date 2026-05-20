@@ -92,6 +92,8 @@ jobs:
       IBKR_ORDER_WAIT_SECONDS: ${{ vars.IBKR_ORDER_WAIT_SECONDS || '45' }}
       IBKR_CANCEL_UNFILLED: ${{ vars.IBKR_CANCEL_UNFILLED || 'true' }}
       IBKR_EXECUTION_GROSS_CAP: ${{ vars.IBKR_EXECUTION_GROSS_CAP || '1.0' }}
+      IBKR_CAPITAL_BASIS: ${{ vars.IBKR_CAPITAL_BASIS || 'buying_power' }}
+      IBKR_BUYING_POWER_UTILIZATION: ${{ vars.IBKR_BUYING_POWER_UTILIZATION || '1.0' }}
 
     steps:
       - name: Check out repo
@@ -155,10 +157,38 @@ jobs:
           from pathlib import Path
 
           summary = json.loads(Path("data/ibkr_account_summary.json").read_text(encoding="utf-8"))
-          net_liq = float(summary["net_liquidation"])
+          basis = os.environ.get("IBKR_CAPITAL_BASIS", "buying_power").strip().lower()
+          utilization = float(os.environ.get("IBKR_BUYING_POWER_UTILIZATION", "1.0"))
+          if utilization <= 0:
+              raise SystemExit("IBKR_BUYING_POWER_UTILIZATION must be positive.")
+
+          aliases = {
+              "buying_power": ["buying_power", "buyingpower"],
+              "available_funds": ["available_funds", "availablefunds"],
+              "excess_liquidity": ["excess_liquidity", "excessliquidity"],
+              "net_liquidation": ["net_liquidation", "netliquidation"],
+          }
+          if basis not in aliases:
+              raise SystemExit(f"Unsupported IBKR_CAPITAL_BASIS={basis!r}. Use buying_power, available_funds, excess_liquidity, or net_liquidation.")
+
+          raw_value = None
+          raw_key = None
+          for key in aliases[basis]:
+              if key in summary and summary[key] not in (None, "", "N/A"):
+                  raw_value = float(summary[key])
+                  raw_key = key
+                  break
+          if raw_value is None or raw_value <= 0:
+              raise SystemExit(f"IBKR account summary did not include a positive {basis}; keys={sorted(summary)}")
+
+          sizing_capital = raw_value * utilization
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-              fh.write(f"net_liquidation={net_liq:.2f}\n")
-          print(f"Sizing next artifact from IBKR NetLiquidation={net_liq:.2f}")
+              fh.write(f"sizing_capital={sizing_capital:.2f}\n")
+              fh.write(f"capital_basis={basis}\n")
+          print(
+              f"Sizing next artifact from IBKR {basis}={raw_value:.2f} "
+              f"using key={raw_key}, utilization={utilization:.4f}, sizing_capital={sizing_capital:.2f}"
+          )
           PY
 
       - name: Pull latest IBKR historical data
@@ -175,7 +205,7 @@ jobs:
             --long-prices-csv data/long_prices.csv \
             --out-dir artifacts/latest \
             --data-source ibkr_historical \
-            --capital-usd "${{ steps.ibkr_preflight.outputs.net_liquidation }}" \
+            --capital-usd "${{ steps.ibkr_preflight.outputs.sizing_capital }}" \
             --execution-gross-cap "${IBKR_EXECUTION_GROSS_CAP}"
 
       - name: Show status and plan

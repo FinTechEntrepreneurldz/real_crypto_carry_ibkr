@@ -29,6 +29,7 @@ def test_signed_qty_helpers():
 def test_summary_key_converts_ibkr_tags():
     assert summary_key("NetLiquidation") == "net_liquidation"
     assert summary_key("AvailableFunds") == "available_funds"
+    assert summary_key("BuyingPower") == "buying_power"
 
 
 def test_dashboard_log_helpers():

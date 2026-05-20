@@ -91,7 +91,7 @@ The workflow checks current IBKR positions and open orders before submitting. If
 
 After each non-dry run, it writes IBKR `NetLiquidation` into `logs/portfolio/portfolio.csv`, `logs/decisions/latest_decision.csv`, and `logs/health/health_status.json`, then commits those dashboard logs back to GitHub so the investor site can display the current paper account value.
 
-Before building the daily artifact, the workflow reads IBKR `NetLiquidation` and uses it as `capital_usd` for the next execution plan. By default `IBKR_EXECUTION_GROSS_CAP=1.0`, so the submitted ETF orders target about 1.0x account net liquidation in total gross notional. Increase that repo variable only if you intentionally want margin leverage.
+Before building the daily artifact, the workflow reads IBKR `BuyingPower` and uses it as `capital_usd` for the next execution plan. By default `IBKR_CAPITAL_BASIS=buying_power`, `IBKR_BUYING_POWER_UTILIZATION=1.0`, and `IBKR_EXECUTION_GROSS_CAP=1.0`, so the submitted ETF orders target about 100% of current IBKR buying power in total gross notional. Lower `IBKR_BUYING_POWER_UTILIZATION` if IBKR rejects orders from intraday margin drift.
 
 The workflow requires an online repository macOS self-hosted runner with the default labels `self-hosted`, `macOS`, and `X64`. If GitHub shows the job queued for minutes with no step logs, the runner is not online or was configured for a different repository. A queued self-hosted job has not connected to TWS and has not submitted any order.
 
