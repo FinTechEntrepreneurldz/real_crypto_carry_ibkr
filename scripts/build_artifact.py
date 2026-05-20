@@ -25,7 +25,7 @@ def main() -> None:
     provenance = build_provenance(args.curve_csv, args.long_prices_csv, args.data_source, cfg)
     curve = load_curve(args.curve_csv)
     prices = load_long_prices(args.long_prices_csv)
-    research = run_research(curve, prices, cfg, run_grid=not args.no_grid_search)
+    research = run_research(curve, prices, cfg, run_grid=False if args.no_grid_search else None)
     zip_path = write_artifacts(args.out_dir, cfg, provenance, research, args.curve_csv, args.long_prices_csv)
     status = json.loads((Path(args.out_dir) / "status.json").read_text(encoding="utf-8"))
     print(json.dumps({"artifact_zip": str(zip_path), **status}, indent=2, default=str))

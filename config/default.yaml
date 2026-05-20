@@ -4,41 +4,51 @@ strategy:
   max_test_drawdown: -0.30
   min_train_days: 252
   min_validation_days: 126
-  min_test_days: 126
+  min_test_days: 60
   train_frac: 0.55
   validation_frac: 0.20
   capital_usd: 100000
+  strategy_mode: etf_regime_relative_momentum
   min_basis_entry: 0.08
   exit_basis: 0.025
-  max_asset_weight: 0.50
-  gross_target: 1.0
-  vol_target: 0.12
-  vol_window: 42
-  hedge_ratio: 1.0
+  max_asset_weight: 4.50
+  gross_target: 2.0
+  vol_target: 0.60
+  max_leverage: 3.0
+  vol_window: 21
+  hedge_ratio: 0.0
   position_direction: 1
   basis_z_window: 42
-  momentum_window: 21
+  momentum_window: 63
+  relative_momentum_window: 63
+  relative_entry: 0.0
+  relative_short_ratio: 0.5
+  market_momentum_window: 21
+  bear_threshold: -0.05
+  bear_mode: weak_strong
+  bear_long_ratio: 0.25
   carry_cost_bps: 175
   futures_roundtrip_bps: 8
   long_leg_roundtrip_bps: 10
   financing_bps: 75
   stale_price_days: 5
   model_selection:
-    enabled: true
+    enabled: false
     min_validation_days: 30
     objective: validation_sharpe
     grid:
-      min_basis_entry: [-0.05, 0.00, 0.05]
-      exit_basis: [-0.05, 0.00]
-      basis_z_entry: [-0.5, 0.5]
-      max_asset_weight: [0.50, 1.00]
-      gross_target: [1.00, 1.50]
-      vol_target: [0.12, 0.25]
-      max_pair_vol: [0.50, 1.00]
-      hedge_ratio: [0.50, 0.75, 1.00]
-      position_direction: [1, -1]
-      trend_floor: [-0.15, 0.0]
-      use_trend_filter: [false, true]
+      strategy_mode: [etf_regime_relative_momentum]
+      relative_momentum_window: [63]
+      relative_entry: [0.0]
+      relative_short_ratio: [0.5]
+      market_momentum_window: [21]
+      bear_threshold: [-0.05]
+      bear_mode: [weak_strong]
+      bear_long_ratio: [0.25]
+      max_asset_weight: [4.50]
+      gross_target: [2.0]
+      vol_target: [0.60]
+      max_leverage: [3.0]
 data:
   accepted_sources:
     - cme_datamine

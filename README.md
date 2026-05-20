@@ -1,12 +1,20 @@
 # Real Crypto Carry IBKR
 
-Real-data-only crypto futures carry research and execution tooling for Interactive Brokers.
+Real-data-only crypto futures carry and crypto ETF regime research/execution tooling for Interactive Brokers.
 
 This repo is intentionally allergic to fake performance. It does **not** ship synthetic backtest artifacts, proxy Yahoo curves, or hard-coded Sharpe claims. A strategy artifact becomes deployable only when it is built from accepted real data sources and passes out-of-sample gates.
 
 ## What This Trades
 
-The default implementation studies and exports a conservative cash-and-carry style book:
+The default implementation now exports a regime-aware ETF relative-momentum book because the current real BIP/ETP futures basis sample is short and low-yielding:
+
+- Uses real IBKR historical prices for `IBIT` and `ETHA`.
+- Uses broad BTC/ETH ETF momentum to detect bear regimes.
+- In bear regimes, shorts the weaker ETF with a partial long hedge.
+- In recovery/bull regimes, trades partial BTC/ETH relative momentum.
+- Exports stock-only IBKR orders; the futures leg is `null`.
+
+The carry implementation is still available for a real futures-curve book:
 
 - BTC: long `IBIT` or configured spot/ETP leg, short regulated BTC futures
 - ETH: long `ETHA` or configured spot/ETP leg, short regulated ETH futures
@@ -19,7 +27,12 @@ Supported futures roots are configurable. Defaults include:
 
 ## Model Upgrade
 
-The current model uses validation-first parameter selection:
+The codebase includes two model paths:
+
+- `etf_regime_relative_momentum`, the default real-data ETF regime strategy.
+- `carry`, the futures cash-and-carry strategy that should be used when you have a longer real CME/Coinbase futures curve.
+
+The carry model supports validation-first parameter selection:
 
 - Builds basis, annualized basis, basis z-score, basis change, long-leg momentum, futures momentum, realized pair volatility, and carry quality features.
 - Runs a grid over entry/exit basis thresholds, basis z-score entry, volatility targets, pair-volatility caps, gross exposure, per-asset caps, and optional trend filters.
@@ -105,7 +118,7 @@ The zip contains:
 
 ## Deployment Gate
 
-The artifact status is `DEPLOYABLE_IBKR_CARRY` only if all are true:
+The artifact status is `DEPLOYABLE_IBKR_ETF_REGIME` for the default ETF regime model or `DEPLOYABLE_IBKR_CARRY` for the carry model only if all are true:
 
 - Data source is accepted real data.
 - Required curve and long-leg prices are present.

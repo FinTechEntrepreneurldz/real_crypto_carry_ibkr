@@ -48,11 +48,13 @@ def latest_execution_plan(positions: pd.DataFrame, cfg: dict) -> list[dict[str, 
         if abs(weight) <= 0:
             continue
         notional = capital * abs(weight)
-        future_px = float(row["future_settle"])
         long_px = float(row["long_close"])
         multiplier = float(asset_cfg.get("multiplier", 1.0))
         hedge_ratio = float(cfg["strategy"].get("hedge_ratio", 1.0))
-        contracts = int(round((notional * hedge_ratio) / max(future_px * multiplier, 1e-9)))
+        future_px = float(row["future_settle"]) if pd.notna(row.get("future_settle")) else 0.0
+        contracts = 0
+        if future_px > 0 and hedge_ratio > 0:
+            contracts = int(round((notional * hedge_ratio) / max(future_px * multiplier, 1e-9)))
         shares = int(round(notional / max(long_px, 1e-9)))
         if shares <= 0:
             continue
@@ -93,6 +95,8 @@ def latest_execution_plan(positions: pd.DataFrame, cfg: dict) -> list[dict[str, 
 
 def evaluate_status(summary: pd.DataFrame, provenance: Any, execution_plan: list[dict[str, Any]], cfg: dict) -> dict[str, Any]:
     s_cfg = cfg["strategy"]
+    strategy_mode = str(s_cfg.get("strategy_mode", "carry")).lower()
+    deployable_status = "DEPLOYABLE_IBKR_ETF_REGIME" if strategy_mode.startswith("etf_") else "DEPLOYABLE_IBKR_CARRY"
     test = summary[summary["period"] == "test"]
     if test.empty:
         return {"status": "RESEARCH_ONLY_NOT_DEPLOYABLE", "reason": "missing test period"}
@@ -111,7 +115,7 @@ def evaluate_status(summary: pd.DataFrame, provenance: Any, execution_plan: list
     if not execution_plan:
         failures.append("latest execution plan is empty")
     return {
-        "status": "DEPLOYABLE_IBKR_CARRY" if not failures else "RESEARCH_ONLY_NOT_DEPLOYABLE",
+        "status": deployable_status if not failures else "RESEARCH_ONLY_NOT_DEPLOYABLE",
         "reason": "passed real-data OOS deployment gates" if not failures else "; ".join(failures),
         "test": t,
         "target_sharpe": float(s_cfg["target_sharpe"]),
@@ -137,13 +141,14 @@ def write_artifacts(
     grid_results = research.get("grid_results", pd.DataFrame())
     selected_params = research.get("selected_params", {})
     effective_cfg = research.get("effective_config", cfg)
-    execution_plan = latest_execution_plan(positions, cfg)
+    execution_plan = latest_execution_plan(positions, effective_cfg)
     status = evaluate_status(summary, provenance, execution_plan, effective_cfg)
+    strategy_mode = str(effective_cfg["strategy"].get("strategy_mode", "carry"))
 
     metadata = {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
-        "strategy_name": "real_crypto_futures_carry_ibkr",
-        "strategy_family": "regulated_crypto_futures_cash_and_carry",
+        "strategy_name": "real_crypto_regime_ibkr",
+        "strategy_family": "regulated_crypto_etf_relative_momentum" if strategy_mode.startswith("etf_") else "regulated_crypto_futures_cash_and_carry",
         "version": "0.2.0",
         "data_provenance": provenance.__dict__,
         "curve_sha256": sha256_file(curve_path),
@@ -155,7 +160,10 @@ def write_artifacts(
         },
         "deployment_status": status["status"],
         "deployment_reason": status["reason"],
-        "warning": "No profit or Sharpe is guaranteed. Deployability is a data-and-OOS gate, not a prediction.",
+        "warning": (
+            "No profit or Sharpe is guaranteed. Deployability is a data-and-OOS gate, not a prediction. "
+            "ETF regime artifacts can involve leveraged long/short ETF exposure and must be paper traded before live use."
+        ),
     }
 
     write_json(out / "metadata.json", metadata)
