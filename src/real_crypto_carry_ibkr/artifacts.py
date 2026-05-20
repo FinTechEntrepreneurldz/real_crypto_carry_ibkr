@@ -40,14 +40,23 @@ def latest_execution_plan(positions: pd.DataFrame, cfg: dict) -> list[dict[str, 
     latest_date = positions["date"].max()
     latest = positions[positions["date"] == latest_date].copy()
     rows: list[dict[str, Any]] = []
-    capital = float(cfg["strategy"]["capital_usd"])
+    s_cfg = cfg["strategy"]
+    capital = float(s_cfg["capital_usd"])
+    gross_cap = s_cfg.get("execution_gross_cap")
+    gross_cap = float(gross_cap) if gross_cap is not None else None
+    raw_gross = float(latest["target_weight"].abs().sum())
+    execution_scale = 1.0
+    if gross_cap is not None and raw_gross > gross_cap > 0:
+        execution_scale = gross_cap / raw_gross
+
     for _, row in latest.iterrows():
         asset = str(row["asset"])
         asset_cfg = cfg["assets"].get(asset, {})
-        weight = float(row.get("target_weight", 0.0) or 0.0)
-        if abs(weight) <= 0:
+        model_weight = float(row.get("target_weight", 0.0) or 0.0)
+        execution_weight = model_weight * execution_scale
+        if abs(execution_weight) <= 0:
             continue
-        notional = capital * abs(weight)
+        notional = capital * abs(execution_weight)
         long_px = float(row["long_close"])
         multiplier = float(asset_cfg.get("multiplier", 1.0))
         hedge_ratio = float(cfg["strategy"].get("hedge_ratio", 1.0))
@@ -67,7 +76,7 @@ def latest_execution_plan(positions: pd.DataFrame, cfg: dict) -> list[dict[str, 
                 "localSymbol": asset_cfg.get("ibkr_local_symbol", ""),
                 "conId": int(asset_cfg.get("ibkr_conid", 0) or 0),
                 "exchange": asset_cfg.get("ibkr_exchange", ""),
-                "side": "SELL" if weight > 0 else "BUY",
+                "side": "SELL" if execution_weight > 0 else "BUY",
                 "quantity_estimate": contracts,
                 "notional_usd": notional * hedge_ratio,
                 "reference_price": future_px,
@@ -82,14 +91,18 @@ def latest_execution_plan(positions: pd.DataFrame, cfg: dict) -> list[dict[str, 
                     "venue": "IBKR",
                     "secType": "STK",
                     "symbol": str(row.get("long_symbol") or asset_cfg.get("long_symbol")),
-                    "side": "BUY" if weight > 0 else "SELL",
+                    "side": "BUY" if execution_weight > 0 else "SELL",
                     "quantity_estimate": shares,
                     "notional_usd": notional,
                     "reference_price": long_px,
                 },
                 "future_leg": future_leg,
                 "basis_ann": float(row["basis_ann"]),
-                "target_weight": weight,
+                "target_weight": execution_weight,
+                "model_target_weight": model_weight,
+                "execution_scale": execution_scale,
+                "capital_usd": capital,
+                "execution_gross_cap": gross_cap,
             }
         )
     return rows

@@ -3,12 +3,18 @@ from __future__ import annotations
 
 import json
 import os
+import argparse
+from pathlib import Path
 
 from real_crypto_carry_ibkr.dashboard_logs import mask_account
 from real_crypto_carry_ibkr.ibkr_execution import IBKRCarryExecutor, IBKRConfig, env_float, env_int
 
 
 def main() -> None:
+    p = argparse.ArgumentParser(description="Verify IBKR paper connectivity and account NLV.")
+    p.add_argument("--output-json", default=None, help="Optional path for the raw account summary JSON.")
+    args = p.parse_args()
+
     account = os.environ.get("IBKR_ACCOUNT", "").strip()
     port = env_int("IBKR_PORT", 7497)
     if not account:
@@ -32,6 +38,11 @@ def main() -> None:
                 f"{[mask_account(a) for a in managed_accounts]}"
             )
         summary = executor.account_summary()
+
+    if args.output_json:
+        path = Path(args.output_json)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
 
     print(
         json.dumps(

@@ -19,9 +19,20 @@ def main() -> None:
     p.add_argument("--data-source", required=True, help="Must be an accepted real data source from config.")
     p.add_argument("--config", default=None)
     p.add_argument("--no-grid-search", action="store_true", help="Use static config parameters instead of validation-first grid selection.")
+    p.add_argument("--capital-usd", type=float, default=None, help="Override strategy capital used to size the execution plan.")
+    p.add_argument(
+        "--execution-gross-cap",
+        type=float,
+        default=None,
+        help="Cap latest execution-plan gross notional as a multiple of capital, e.g. 1.0 for full account gross exposure.",
+    )
     args = p.parse_args()
 
     cfg = load_config(args.config)
+    if args.capital_usd is not None:
+        cfg["strategy"]["capital_usd"] = float(args.capital_usd)
+    if args.execution_gross_cap is not None:
+        cfg["strategy"]["execution_gross_cap"] = float(args.execution_gross_cap)
     provenance = build_provenance(args.curve_csv, args.long_prices_csv, args.data_source, cfg)
     curve = load_curve(args.curve_csv)
     prices = load_long_prices(args.long_prices_csv)

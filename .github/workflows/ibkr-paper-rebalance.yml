@@ -91,6 +91,7 @@ jobs:
       IBKR_LONG_LEG_LIMIT_OFFSET_BPS: ${{ vars.IBKR_LONG_LEG_LIMIT_OFFSET_BPS || '5' }}
       IBKR_ORDER_WAIT_SECONDS: ${{ vars.IBKR_ORDER_WAIT_SECONDS || '45' }}
       IBKR_CANCEL_UNFILLED: ${{ vars.IBKR_CANCEL_UNFILLED || 'true' }}
+      IBKR_EXECUTION_GROSS_CAP: ${{ vars.IBKR_EXECUTION_GROSS_CAP || '1.0' }}
 
     steps:
       - name: Check out repo
@@ -143,9 +144,22 @@ jobs:
           PY
 
       - name: Preflight IBKR paper connection
+        id: ibkr_preflight
         if: steps.time_guard.outputs.run_rebalance == 'true'
         timeout-minutes: 2
-        run: .venv/bin/python scripts/preflight_ibkr_paper.py
+        run: |
+          .venv/bin/python scripts/preflight_ibkr_paper.py --output-json data/ibkr_account_summary.json
+          .venv/bin/python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          summary = json.loads(Path("data/ibkr_account_summary.json").read_text(encoding="utf-8"))
+          net_liq = float(summary["net_liquidation"])
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"net_liquidation={net_liq:.2f}\n")
+          print(f"Sizing next artifact from IBKR NetLiquidation={net_liq:.2f}")
+          PY
 
       - name: Pull latest IBKR historical data
         if: steps.time_guard.outputs.run_rebalance == 'true'
@@ -160,7 +174,9 @@ jobs:
             --curve-csv data/cme_curve.csv \
             --long-prices-csv data/long_prices.csv \
             --out-dir artifacts/latest \
-            --data-source ibkr_historical
+            --data-source ibkr_historical \
+            --capital-usd "${{ steps.ibkr_preflight.outputs.net_liquidation }}" \
+            --execution-gross-cap "${IBKR_EXECUTION_GROSS_CAP}"
 
       - name: Show status and plan
         if: steps.time_guard.outputs.run_rebalance == 'true'
