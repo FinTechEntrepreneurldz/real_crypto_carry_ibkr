@@ -17,6 +17,17 @@ Supported futures roots are configurable. Defaults include:
 - Coinbase Derivatives perpetual-style futures through IBKR: `BIP` and `ETP`
 - CME micro futures: `MBT` and `MET`
 
+## Model Upgrade
+
+The current model uses validation-first parameter selection:
+
+- Builds basis, annualized basis, basis z-score, basis change, long-leg momentum, futures momentum, realized pair volatility, and carry quality features.
+- Runs a grid over entry/exit basis thresholds, basis z-score entry, volatility targets, pair-volatility caps, gross exposure, per-asset caps, and optional trend filters.
+- Selects parameters using train/validation only.
+- Reports untouched test performance and refuses deployment unless the real OOS gate passes.
+
+This is designed to improve the model without lying to you. If the real test set does not clear the gate, the artifact remains research-only.
+
 ## Non-Synthetic Data Contract
 
 You must supply real historical data:
@@ -78,6 +89,8 @@ The zip contains:
 - `status.json`
 - `config.json`
 - `execution_plan_latest.json`
+- `selected_params.json`
+- `grid_results.csv`
 - `performance_summary.csv`
 - `daily_returns.csv`
 - `signals.csv`

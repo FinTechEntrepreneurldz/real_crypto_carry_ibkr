@@ -20,6 +20,8 @@ REQUIRED_ZIP_FILES = {
     "daily_returns.csv",
     "signals.csv",
     "positions.csv",
+    "grid_results.csv",
+    "selected_params.json",
     "manifest.json",
 }
 
@@ -127,17 +129,25 @@ def write_artifacts(
     returns = research["returns"]
     panel = research["panel"]
     positions = research["positions"]
+    grid_results = research.get("grid_results", pd.DataFrame())
+    selected_params = research.get("selected_params", {})
+    effective_cfg = research.get("effective_config", cfg)
     execution_plan = latest_execution_plan(positions, cfg)
-    status = evaluate_status(summary, provenance, execution_plan, cfg)
+    status = evaluate_status(summary, provenance, execution_plan, effective_cfg)
 
     metadata = {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "strategy_name": "real_crypto_futures_carry_ibkr",
         "strategy_family": "regulated_crypto_futures_cash_and_carry",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "data_provenance": provenance.__dict__,
         "curve_sha256": sha256_file(curve_path),
         "long_prices_sha256": sha256_file(prices_path),
+        "model_selection": {
+            "enabled": bool(cfg["strategy"].get("model_selection", {}).get("enabled", False)),
+            "selected_params": selected_params,
+            "grid_trials": int(len(grid_results)) if grid_results is not None else 0,
+        },
         "deployment_status": status["status"],
         "deployment_reason": status["reason"],
         "warning": "No profit or Sharpe is guaranteed. Deployability is a data-and-OOS gate, not a prediction.",
@@ -145,12 +155,20 @@ def write_artifacts(
 
     write_json(out / "metadata.json", metadata)
     write_json(out / "status.json", status)
-    write_json(out / "config.json", cfg)
+    write_json(out / "config.json", effective_cfg)
     write_json(out / "execution_plan_latest.json", execution_plan)
+    write_json(out / "selected_params.json", selected_params)
     summary.to_csv(out / "performance_summary.csv", index=False)
     returns.rename("strategy_return").to_csv(out / "daily_returns.csv")
     panel.to_csv(out / "signals.csv", index=False)
     positions.to_csv(out / "positions.csv", index=False)
+    if grid_results is None or grid_results.empty:
+        pd.DataFrame([selected_params]).to_csv(out / "grid_results.csv", index=False)
+    else:
+        grid_results.sort_values(
+            [col for col in ["selection_score", "validation_sharpe", "test_sharpe"] if col in grid_results.columns],
+            ascending=False,
+        ).to_csv(out / "grid_results.csv", index=False)
     manifest = {
         "files": sorted(REQUIRED_ZIP_FILES - {"manifest.json"}),
         "required_files": sorted(REQUIRED_ZIP_FILES),
