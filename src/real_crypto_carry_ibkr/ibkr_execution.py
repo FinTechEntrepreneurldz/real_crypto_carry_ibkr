@@ -17,6 +17,7 @@ except ImportError as exc:  # pragma: no cover - import guard for machines witho
 PAPER_PORTS = {7497, 4002}
 LIVE_PORTS = {7496, 4001}
 LIVE_ACK = "I_UNDERSTAND_THIS_SUBMITS_REAL_ORDERS"
+DONE_STATUSES = {"filled", "cancelled", "inactive", "apicancelled"}
 
 
 def env_bool(name: str, default: bool = False) -> bool:
@@ -155,8 +156,11 @@ class IBKRCarryExecutor:
     def make_order(self, contract: Contract, side: str, qty: int, is_future: bool, fallback_ref: float = 0.0):
         account = os.environ.get("IBKR_ACCOUNT", "").strip()
         order_type = os.environ.get("IBKR_FUTURES_ORDER_TYPE" if is_future else "IBKR_LONG_LEG_ORDER_TYPE", "LIMIT").upper()
+        tif = os.environ.get("IBKR_ORDER_TIF", "DAY").strip().upper() or "DAY"
         if order_type in {"MKT", "MARKET"}:
             order = MarketOrder(side, abs(int(qty)))
+            order.tif = tif
+            order.outsideRth = env_bool("IBKR_OUTSIDE_RTH", False)
             if account:
                 order.account = account
             return order, "market"
@@ -183,10 +187,47 @@ class IBKRCarryExecutor:
             limit_px = ref * (1.0 + offset_bps) if side.upper() == "BUY" else ref * (1.0 - offset_bps)
             limit_px = round_to_tick(limit_px, tick, side)
         order = LimitOrder(side, abs(int(qty)), float(limit_px))
+        order.tif = tif
+        order.outsideRth = env_bool("IBKR_OUTSIDE_RTH", False)
         if account:
             order.account = account
         fallback_diag = f";fallback_ref={ref}" if used_fallback else ""
-        return order, f"limit={limit_px};quote={q}{fallback_diag}"
+        return order, f"limit={limit_px};tif={tif};outsideRth={order.outsideRth};quote={q}{fallback_diag}"
+
+    def trade_status(self, trade, existing: bool = False) -> dict[str, Any]:
+        return {
+            "status": str(trade.orderStatus.status or ""),
+            "order_id": str(trade.order.orderId),
+            "filled_qty": float(trade.orderStatus.filled or 0),
+            "remaining_qty": float(trade.orderStatus.remaining or 0),
+            "avg_fill_price": float(trade.orderStatus.avgFillPrice or 0),
+            "existing_order": bool(existing),
+        }
+
+    def find_matching_open_trade(self, contract: Contract, side: str, qty: int):
+        try:
+            self.ib.reqOpenOrders()
+            self.ib.sleep(env_float("IBKR_OPEN_ORDERS_SLEEP_SECONDS", 1.0))
+        except Exception:
+            pass
+        expected_qty = abs(int(qty))
+        expected_side = side.upper()
+        expected_con_id = int(getattr(contract, "conId", 0) or 0)
+        for trade in self.ib.openTrades():
+            status = str(trade.orderStatus.status or "").lower()
+            if status in DONE_STATUSES:
+                continue
+            order = trade.order
+            open_contract = trade.contract
+            open_con_id = int(getattr(open_contract, "conId", 0) or 0)
+            if expected_con_id and open_con_id and open_con_id != expected_con_id:
+                continue
+            if str(order.action or "").upper() != expected_side:
+                continue
+            if abs(int(float(order.totalQuantity or 0))) != expected_qty:
+                continue
+            return trade
+        return None
 
     def wait_trade(self, trade, wait_seconds: float) -> dict[str, Any]:
         end = time.time() + wait_seconds
@@ -196,13 +237,7 @@ class IBKRCarryExecutor:
             remaining = float(trade.orderStatus.remaining or 0)
             if status.lower() in {"filled", "cancelled", "inactive"} or remaining <= 0:
                 break
-        return {
-            "status": str(trade.orderStatus.status or ""),
-            "order_id": str(trade.order.orderId),
-            "filled_qty": float(trade.orderStatus.filled or 0),
-            "remaining_qty": float(trade.orderStatus.remaining or 0),
-            "avg_fill_price": float(trade.orderStatus.avgFillPrice or 0),
-        }
+        return self.trade_status(trade)
 
     def execute_plan(self, execution_plan: list[dict[str, Any]], dry_run: bool = True) -> list[dict[str, Any]]:
         if not dry_run:
@@ -232,6 +267,12 @@ class IBKRCarryExecutor:
 
             fut_stat = {"filled_qty": 0.0}
             if future_leg and future is not None and fut_qty > 0:
+                existing = self.find_matching_open_trade(future, future_leg["side"], fut_qty)
+                if existing is not None:
+                    fut_stat = self.trade_status(existing, existing=True)
+                    item["legs"].append({"leg": "future", "diag": "matched_existing_open_order", **fut_stat})
+                    results.append(item)
+                    continue
                 fut_order, fut_diag = self.make_order(
                     future,
                     future_leg["side"],
@@ -251,6 +292,12 @@ class IBKRCarryExecutor:
                 if not future_leg:
                     fill_ratio = 1.0
                 adj_long_qty = max(1, int(round(long_qty * fill_ratio)))
+                existing = self.find_matching_open_trade(stock, long_leg["side"], adj_long_qty)
+                if existing is not None:
+                    stock_stat = self.trade_status(existing, existing=True)
+                    item["legs"].append({"leg": "long", "diag": "matched_existing_open_order", **stock_stat})
+                    results.append(item)
+                    continue
                 stock_order, stock_diag = self.make_order(
                     stock,
                     long_leg["side"],
