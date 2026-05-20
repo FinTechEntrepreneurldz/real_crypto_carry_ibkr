@@ -26,13 +26,32 @@ def build_signal_panel(curve: pd.DataFrame, long_prices: pd.DataFrame, cfg: dict
     front = select_front_contracts(curve)
     px = long_prices.copy()
     px = px.sort_values(["asset", "date"])
-    px = px.groupby(["asset", "date"], as_index=False).last()
-    panel = front.merge(px[["date", "asset", "symbol", "close"]], on=["date", "asset"], how="inner")
+    if "price_role" not in px.columns:
+        px["price_role"] = "long"
+    px["price_role"] = px["price_role"].astype(str).str.lower().str.strip()
+    long_px = (
+        px[px["price_role"].isin(["long", "etf", "execution"])]
+        .sort_values(["asset", "date", "price_role"])
+        .groupby(["asset", "date"], as_index=False)
+        .last()
+    )
+    spot_px = (
+        px[px["price_role"].isin(["spot", "underlying", "reference"])]
+        .sort_values(["asset", "date", "price_role"])
+        .groupby(["asset", "date"], as_index=False)
+        .last()
+    )
+    if spot_px.empty:
+        spot_px = long_px.copy()
+        spot_px["price_role"] = "long_fallback"
+    panel = front.merge(long_px[["date", "asset", "symbol", "close"]], on=["date", "asset"], how="inner")
     panel = panel.rename(columns={"symbol": "long_symbol", "close": "long_close"})
+    panel = panel.merge(spot_px[["date", "asset", "symbol", "close"]], on=["date", "asset"], how="inner")
+    panel = panel.rename(columns={"symbol": "spot_symbol", "close": "spot_close"})
     if panel.empty:
         raise ValueError("no overlapping dates between futures curve and long prices")
 
-    panel["basis"] = panel["future_settle"] / panel["long_close"] - 1.0
+    panel["basis"] = panel["future_settle"] / panel["spot_close"] - 1.0
     panel["basis_ann"] = panel["basis"] * TRADING_DAYS / panel["dte"].clip(lower=1)
     panel = panel.sort_values(["asset", "date"])
     panel["long_ret"] = panel.groupby("asset")["long_close"].pct_change().fillna(0.0)
@@ -78,6 +97,8 @@ def _params_from_cfg(cfg: dict) -> dict:
         "gross_target": float(s_cfg["gross_target"]),
         "vol_target": float(s_cfg["vol_target"]),
         "max_pair_vol": float(s_cfg.get("max_pair_vol", 10.0)),
+        "hedge_ratio": float(s_cfg.get("hedge_ratio", 1.0)),
+        "position_direction": int(float(s_cfg.get("position_direction", 1))),
         "trend_floor": float(s_cfg.get("trend_floor", -10.0)),
         "use_trend_filter": bool(s_cfg.get("use_trend_filter", False)),
     }
@@ -100,6 +121,7 @@ def compute_positions(panel: pd.DataFrame, cfg: dict, params: dict | None = None
     gross_target = float(p["gross_target"])
     vol_target = float(p["vol_target"])
     max_pair_vol = float(p["max_pair_vol"])
+    direction = 1 if float(p.get("position_direction", 1)) >= 0 else -1
     trend_floor = float(p["trend_floor"])
     use_trend_filter = bool(p["use_trend_filter"])
 
@@ -120,7 +142,7 @@ def compute_positions(panel: pd.DataFrame, cfg: dict, params: dict | None = None
                 active = False
 
             quality = max(float(row.get("carry_quality", 0.0) or 0.0), 0.0)
-            raw_weight = min(max_asset_weight, quality) if active else 0.0
+            raw_weight = direction * min(max_asset_weight, quality) if active else 0.0
             vol = float(row.get("realized_pair_vol", 0.0) or 0.0)
             vol_scale = min(1.0, vol_target / vol) if vol > 0 else 0.0
             rows.append(
@@ -139,9 +161,9 @@ def compute_positions(panel: pd.DataFrame, cfg: dict, params: dict | None = None
 
     pos = pd.DataFrame(out).sort_values(["date", "asset"])
     pos["target_weight"] = pos["raw_weight"] * pos["vol_scale"]
-    gross = pos.groupby("date")["target_weight"].transform("sum").replace(0, np.nan)
+    gross = pos["target_weight"].abs().groupby(pos["date"]).transform("sum").replace(0, np.nan)
     scaler = (gross_target / gross).clip(upper=1.0).fillna(0.0)
-    pos["target_weight"] = (pos["target_weight"] * scaler).clip(0.0, max_asset_weight)
+    pos["target_weight"] = (pos["target_weight"] * scaler).clip(-max_asset_weight, max_asset_weight)
     return pos
 
 
@@ -152,15 +174,16 @@ def simulate(panel: pd.DataFrame, cfg: dict, params: dict | None = None) -> tupl
     carry_cost = float(s_cfg["carry_cost_bps"]) / 10000.0 / TRADING_DAYS
     financing = float(s_cfg["financing_bps"]) / 10000.0 / TRADING_DAYS
     roundtrip = (float(s_cfg["futures_roundtrip_bps"]) + float(s_cfg["long_leg_roundtrip_bps"])) / 10000.0
+    hedge_ratio = float(s_cfg.get("hedge_ratio", 1.0))
 
     pos = pos.sort_values(["asset", "date"])
     pos["prev_weight"] = pos.groupby("asset")["target_weight"].shift(1).fillna(0.0)
     pos["turnover"] = (pos["target_weight"] - pos["prev_weight"]).abs()
-    pos["gross_daily_cost"] = pos["prev_weight"] * (carry_cost + financing)
+    pos["gross_daily_cost"] = pos["prev_weight"].abs() * (carry_cost + financing)
     pos["trading_cost"] = pos["turnover"] * roundtrip
     pos["strategy_ret"] = (
-        pos["prev_weight"] * pos["pair_ret_raw"]
-        - pos["gross_daily_cost"]
+        pos["prev_weight"] * (pos["long_ret"] - hedge_ratio * pos["future_ret"])
+        - pos["gross_daily_cost"] * (1.0 + hedge_ratio)
         - pos["trading_cost"]
     )
     ret = pos.groupby("date")["strategy_ret"].sum().sort_index()
@@ -189,7 +212,7 @@ def grid_search(panel: pd.DataFrame, cfg: dict) -> pd.DataFrame:
             for key, value in stats.items():
                 row[f"{period}_{key}"] = value
         row["full_turnover"] = float(positions.groupby("date")["turnover"].sum().mean()) if not positions.empty else 0.0
-        row["active_days"] = int((positions.groupby("date")["target_weight"].sum() > 0).sum()) if not positions.empty else 0
+        row["active_days"] = int((positions["target_weight"].abs().groupby(positions["date"]).sum() > 0).sum()) if not positions.empty else 0
         row["valid_for_selection"] = bool(
             row.get("validation_n", 0) >= min_validation_days
             and row.get("train_n", 0) >= max(30, int(cfg["strategy"].get("min_train_days", 252)) // 4)
@@ -210,6 +233,7 @@ def score_grid(grid: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         - 0.50 * out["validation_max_dd"].astype(float).abs()
         - 0.05 * out["full_turnover"].astype(float)
     )
+    out.loc[out["active_days"].astype(float) <= 0, "selection_score"] = -1e9
     return out
 
 

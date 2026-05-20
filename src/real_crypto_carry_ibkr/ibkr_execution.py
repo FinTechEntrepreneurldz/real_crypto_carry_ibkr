@@ -183,30 +183,35 @@ class IBKRCarryExecutor:
         for row in execution_plan:
             future_leg = row["future_leg"]
             long_leg = row["long_leg"]
-            fut_qty = min(abs(int(future_leg["quantity_estimate"])), cap) if cap > 0 else abs(int(future_leg["quantity_estimate"]))
+            fut_qty = 0 if not future_leg else min(abs(int(future_leg["quantity_estimate"])), cap) if cap > 0 else abs(int(future_leg["quantity_estimate"]))
             long_qty = abs(int(long_leg["quantity_estimate"]))
-            if fut_qty <= 0 or long_qty <= 0:
+            if long_qty <= 0:
                 continue
-            future = self.future_contract(future_leg)
+            future = self.future_contract(future_leg) if future_leg and fut_qty > 0 else None
             stock = self.stock_contract(long_leg["symbol"])
 
             item = {"asset": row["asset"], "dry_run": dry_run, "legs": []}
             if dry_run:
-                item["legs"].append({"leg": "future", "side": future_leg["side"], "qty": fut_qty, "contract": str(future)})
+                if future_leg and future is not None:
+                    item["legs"].append({"leg": "future", "side": future_leg["side"], "qty": fut_qty, "contract": str(future)})
                 item["legs"].append({"leg": "long", "side": long_leg["side"], "qty": long_qty, "contract": str(stock)})
                 results.append(item)
                 continue
 
-            fut_order, fut_diag = self.make_order(future, future_leg["side"], fut_qty, is_future=True)
-            fut_trade = self.ib.placeOrder(future, fut_order)
-            fut_stat = self.wait_trade(fut_trade, wait_seconds)
-            if cancel_unfilled and fut_stat["remaining_qty"] > 0:
-                self.ib.cancelOrder(fut_trade.order)
-                self.ib.sleep(1.0)
-            item["legs"].append({"leg": "future", "diag": fut_diag, **fut_stat})
+            fut_stat = {"filled_qty": 0.0}
+            if future_leg and future is not None and fut_qty > 0:
+                fut_order, fut_diag = self.make_order(future, future_leg["side"], fut_qty, is_future=True)
+                fut_trade = self.ib.placeOrder(future, fut_order)
+                fut_stat = self.wait_trade(fut_trade, wait_seconds)
+                if cancel_unfilled and fut_stat["remaining_qty"] > 0:
+                    self.ib.cancelOrder(fut_trade.order)
+                    self.ib.sleep(1.0)
+                item["legs"].append({"leg": "future", "diag": fut_diag, **fut_stat})
 
-            if fut_stat["filled_qty"] > 0:
+            if (not future_leg) or fut_stat["filled_qty"] > 0:
                 fill_ratio = min(1.0, fut_stat["filled_qty"] / max(fut_qty, 1))
+                if not future_leg:
+                    fill_ratio = 1.0
                 adj_long_qty = max(1, int(round(long_qty * fill_ratio)))
                 stock_order, stock_diag = self.make_order(stock, long_leg["side"], adj_long_qty, is_future=False)
                 stock_trade = self.ib.placeOrder(stock, stock_order)

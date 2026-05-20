@@ -1,5 +1,5 @@
 strategy:
-  target_sharpe: 2.0
+  target_sharpe: 3.0
   target_ann_return: 0.15
   max_test_drawdown: -0.30
   min_train_days: 252
@@ -14,6 +14,8 @@ strategy:
   gross_target: 1.0
   vol_target: 0.12
   vol_window: 42
+  hedge_ratio: 1.0
+  position_direction: 1
   basis_z_window: 42
   momentum_window: 21
   carry_cost_bps: 175
@@ -26,13 +28,15 @@ strategy:
     min_validation_days: 30
     objective: validation_sharpe
     grid:
-      min_basis_entry: [0.00, 0.05, 0.10]
-      exit_basis: [0.00, 0.025, 0.05]
-      basis_z_entry: [-0.5, 0.0, 0.5]
-      max_asset_weight: [0.25, 0.50]
-      gross_target: [0.50, 1.00]
-      vol_target: [0.08, 0.12]
-      max_pair_vol: [0.35, 0.50, 0.75]
+      min_basis_entry: [-0.05, 0.00, 0.05]
+      exit_basis: [-0.05, 0.00]
+      basis_z_entry: [-0.5, 0.5]
+      max_asset_weight: [0.50, 1.00]
+      gross_target: [1.00, 1.50]
+      vol_target: [0.12, 0.25]
+      max_pair_vol: [0.50, 1.00]
+      hedge_ratio: [0.50, 0.75, 1.00]
+      position_direction: [1, -1]
       trend_floor: [-0.15, 0.0]
       use_trend_filter: [false, true]
 data:

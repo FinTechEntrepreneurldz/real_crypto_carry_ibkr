@@ -45,16 +45,32 @@ def latest_execution_plan(positions: pd.DataFrame, cfg: dict) -> list[dict[str, 
         asset = str(row["asset"])
         asset_cfg = cfg["assets"].get(asset, {})
         weight = float(row.get("target_weight", 0.0) or 0.0)
-        if weight <= 0:
+        if abs(weight) <= 0:
             continue
-        notional = capital * weight
+        notional = capital * abs(weight)
         future_px = float(row["future_settle"])
         long_px = float(row["long_close"])
         multiplier = float(asset_cfg.get("multiplier", 1.0))
-        contracts = int(round(notional / max(future_px * multiplier, 1e-9)))
+        hedge_ratio = float(cfg["strategy"].get("hedge_ratio", 1.0))
+        contracts = int(round((notional * hedge_ratio) / max(future_px * multiplier, 1e-9)))
         shares = int(round(notional / max(long_px, 1e-9)))
-        if contracts <= 0 or shares <= 0:
+        if shares <= 0:
             continue
+        future_leg = None
+        if contracts > 0:
+            future_leg = {
+                "venue": "IBKR",
+                "secType": "FUT",
+                "root": asset_cfg.get("default_future_root"),
+                "localSymbol": asset_cfg.get("ibkr_local_symbol", ""),
+                "conId": int(asset_cfg.get("ibkr_conid", 0) or 0),
+                "exchange": asset_cfg.get("ibkr_exchange", ""),
+                "side": "SELL" if weight > 0 else "BUY",
+                "quantity_estimate": contracts,
+                "notional_usd": notional * hedge_ratio,
+                "contract_multiplier_coin": multiplier,
+                "hedge_ratio": hedge_ratio,
+            }
         rows.append(
             {
                 "date": str(pd.Timestamp(latest_date).date()),
@@ -63,22 +79,11 @@ def latest_execution_plan(positions: pd.DataFrame, cfg: dict) -> list[dict[str, 
                     "venue": "IBKR",
                     "secType": "STK",
                     "symbol": str(row.get("long_symbol") or asset_cfg.get("long_symbol")),
-                    "side": "BUY",
+                    "side": "BUY" if weight > 0 else "SELL",
                     "quantity_estimate": shares,
                     "notional_usd": notional,
                 },
-                "future_leg": {
-                    "venue": "IBKR",
-                    "secType": "FUT",
-                    "root": asset_cfg.get("default_future_root"),
-                    "localSymbol": asset_cfg.get("ibkr_local_symbol", ""),
-                    "conId": int(asset_cfg.get("ibkr_conid", 0) or 0),
-                    "exchange": asset_cfg.get("ibkr_exchange", ""),
-                    "side": "SELL",
-                    "quantity_estimate": contracts,
-                    "notional_usd": notional,
-                    "contract_multiplier_coin": multiplier,
-                },
+                "future_leg": future_leg,
                 "basis_ann": float(row["basis_ann"]),
                 "target_weight": weight,
             }

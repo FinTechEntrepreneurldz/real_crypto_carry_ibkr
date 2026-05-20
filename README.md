@@ -77,6 +77,12 @@ python scripts/build_artifact.py \
   --data-source databento
 ```
 
+With TWS/Gateway running, you can pull the default IBKR historical inputs first:
+
+```bash
+python scripts/pull_ibkr_history.py
+```
+
 The final output is:
 
 ```text
@@ -103,7 +109,7 @@ The artifact status is `DEPLOYABLE_IBKR_CARRY` only if all are true:
 
 - Data source is accepted real data.
 - Required curve and long-leg prices are present.
-- Test Sharpe is at least `2.0`.
+- Test Sharpe is at least `3.0`.
 - Test annualized return is at least `15%`.
 - Test max drawdown is no worse than `-30%`.
 - Latest execution plan has valid symbols/contracts and non-stale prices.

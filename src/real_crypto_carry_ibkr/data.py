@@ -71,6 +71,9 @@ def load_long_prices(path: str | Path) -> pd.DataFrame:
     df["asset"] = df["asset"].astype(str).str.upper().str.strip()
     df["symbol"] = df["symbol"].astype(str).str.upper().str.strip()
     df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    if "price_role" not in df.columns:
+        df["price_role"] = "long"
+    df["price_role"] = df["price_role"].astype(str).str.lower().str.strip()
     df = df.dropna(subset=["date", "asset", "symbol", "close"])
     df = df[df["close"] > 0].sort_values(["asset", "date", "symbol"])
     if df.empty:

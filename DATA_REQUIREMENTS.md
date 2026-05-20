@@ -30,10 +30,19 @@ Required columns:
 date,asset,symbol,close
 ```
 
+Optional but strongly recommended:
+
+```text
+price_role
+```
+
+Use `price_role=spot` for the true BTC/ETH reference price used in basis calculation, and `price_role=long` for the executable long leg such as `IBIT` or `ETHA`. If `price_role` is omitted, rows are treated as executable long-leg prices and basis falls back to that same price, which is usually wrong for ETFs.
+
 Example row shape:
 
 ```text
-2026-05-18,BTC,IBIT,62.11
+2026-05-18,BTC,IBIT,62.11,long
+2026-05-18,BTC,BTC,103500.00,spot
 ```
 
 ## Accepted Sources
