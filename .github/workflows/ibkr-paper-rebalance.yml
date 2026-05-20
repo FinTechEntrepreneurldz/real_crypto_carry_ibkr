@@ -90,10 +90,11 @@ jobs:
       IBKR_LONG_LEG_ORDER_TYPE: ${{ vars.IBKR_LONG_LEG_ORDER_TYPE || 'MKT' }}
       IBKR_LONG_LEG_LIMIT_OFFSET_BPS: ${{ vars.IBKR_LONG_LEG_LIMIT_OFFSET_BPS || '5' }}
       IBKR_ORDER_WAIT_SECONDS: ${{ vars.IBKR_ORDER_WAIT_SECONDS || '45' }}
+      IBKR_BETWEEN_ORDER_SLEEP_SECONDS: ${{ vars.IBKR_BETWEEN_ORDER_SLEEP_SECONDS || '2' }}
       IBKR_CANCEL_UNFILLED: ${{ vars.IBKR_CANCEL_UNFILLED || 'true' }}
       IBKR_EXECUTION_GROSS_CAP: ${{ vars.IBKR_EXECUTION_GROSS_CAP || '1.0' }}
       IBKR_CAPITAL_BASIS: ${{ vars.IBKR_CAPITAL_BASIS || 'buying_power' }}
-      IBKR_BUYING_POWER_UTILIZATION: ${{ vars.IBKR_BUYING_POWER_UTILIZATION || '1.0' }}
+      IBKR_BUYING_POWER_UTILIZATION: ${{ vars.IBKR_BUYING_POWER_UTILIZATION || '0.95' }}
 
     steps:
       - name: Check out repo
@@ -158,7 +159,7 @@ jobs:
 
           summary = json.loads(Path("data/ibkr_account_summary.json").read_text(encoding="utf-8"))
           basis = os.environ.get("IBKR_CAPITAL_BASIS", "buying_power").strip().lower()
-          utilization = float(os.environ.get("IBKR_BUYING_POWER_UTILIZATION", "1.0"))
+          utilization = float(os.environ.get("IBKR_BUYING_POWER_UTILIZATION", "0.95"))
           if utilization <= 0:
               raise SystemExit("IBKR_BUYING_POWER_UTILIZATION must be positive.")
 

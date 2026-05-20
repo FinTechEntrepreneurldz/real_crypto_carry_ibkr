@@ -34,6 +34,14 @@ def sha256_file(path: str | Path) -> str:
     return h.hexdigest()
 
 
+def execution_plan_order(row: dict[str, Any]) -> tuple[int, str]:
+    long_leg = row.get("long_leg") or {}
+    side = str(long_leg.get("side") or "").upper()
+    # Submit SELL/reducing legs before BUY legs so margin can refresh before adding exposure.
+    side_rank = 0 if side == "SELL" else 1
+    return side_rank, str(row.get("asset") or "")
+
+
 def latest_execution_plan(positions: pd.DataFrame, cfg: dict) -> list[dict[str, Any]]:
     if positions.empty:
         return []
@@ -105,7 +113,7 @@ def latest_execution_plan(positions: pd.DataFrame, cfg: dict) -> list[dict[str, 
                 "execution_gross_cap": gross_cap,
             }
         )
-    return rows
+    return sorted(rows, key=execution_plan_order)
 
 
 def evaluate_status(summary: pd.DataFrame, provenance: Any, execution_plan: list[dict[str, Any]], cfg: dict) -> dict[str, Any]:

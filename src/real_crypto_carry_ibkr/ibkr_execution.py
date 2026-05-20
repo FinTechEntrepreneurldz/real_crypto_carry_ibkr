@@ -86,6 +86,14 @@ def summary_key(tag: str) -> str:
     return "".join(out).replace("__", "_").strip("_")
 
 
+def execution_plan_order(row: dict[str, Any]) -> tuple[int, str]:
+    long_leg = row.get("long_leg") or {}
+    side = str(long_leg.get("side") or "").upper()
+    # Submit SELL/reducing legs before BUY legs so margin can refresh before adding exposure.
+    side_rank = 0 if side == "SELL" else 1
+    return side_rank, str(row.get("asset") or "")
+
+
 @dataclass
 class IBKRConfig:
     host: str = "127.0.0.1"
@@ -346,8 +354,10 @@ class IBKRCarryExecutor:
         cap = env_int("IBKR_MAX_FUTURES_CONTRACTS_PER_RUN", 1)
         wait_seconds = env_float("IBKR_ORDER_WAIT_SECONDS", 45.0)
         cancel_unfilled = env_bool("IBKR_CANCEL_UNFILLED", True)
+        between_order_sleep = env_float("IBKR_BETWEEN_ORDER_SLEEP_SECONDS", 2.0)
+        ordered_plan = sorted(execution_plan, key=execution_plan_order)
 
-        for row in execution_plan:
+        for row_index, row in enumerate(ordered_plan):
             future_leg = row["future_leg"]
             long_leg = row["long_leg"]
             fut_qty = 0 if not future_leg else min(abs(int(future_leg["quantity_estimate"])), cap) if cap > 0 else abs(int(future_leg["quantity_estimate"]))
@@ -408,6 +418,8 @@ class IBKRCarryExecutor:
                 stock_stat = self.wait_trade(stock_trade, wait_seconds)
                 item["legs"].append({"leg": "long", "diag": stock_diag, **stock_stat})
             results.append(item)
+            if not dry_run and row_index < len(ordered_plan) - 1 and between_order_sleep > 0:
+                self.ib.sleep(between_order_sleep)
         return results
 
 

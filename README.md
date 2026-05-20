@@ -96,7 +96,7 @@ With TWS/Gateway running, you can pull the default IBKR historical inputs first:
 python scripts/pull_ibkr_history.py
 ```
 
-For paper deployment, the GitHub Action reads IBKR `BuyingPower` during preflight and passes it into the artifact build as `capital_usd`. The defaults `IBKR_CAPITAL_BASIS=buying_power`, `IBKR_BUYING_POWER_UTILIZATION=1.0`, and `IBKR_EXECUTION_GROSS_CAP=1.0` size the latest execution plan to roughly 100% of current IBKR buying power in total gross ETF notional.
+For paper deployment, the GitHub Action reads IBKR `BuyingPower` during preflight and passes it into the artifact build as `capital_usd`. The defaults `IBKR_CAPITAL_BASIS=buying_power`, `IBKR_BUYING_POWER_UTILIZATION=0.95`, and `IBKR_EXECUTION_GROSS_CAP=1.0` size the latest execution plan to roughly 95% of current IBKR buying power in total gross ETF notional. The execution plan submits SELL legs before BUY legs so IBKR can refresh margin before adding exposure.
 
 The final output is:
 

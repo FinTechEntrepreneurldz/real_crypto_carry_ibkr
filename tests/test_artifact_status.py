@@ -65,7 +65,9 @@ def test_latest_execution_plan_uses_capital_and_gross_cap():
 
     plan = latest_execution_plan(positions, cfg)
 
+    assert [row["long_leg"]["side"] for row in plan] == ["SELL", "BUY"]
     assert sum(row["long_leg"]["notional_usd"] for row in plan) == 1_000_000
-    assert plan[0]["target_weight"] == 0.75
-    assert plan[0]["model_target_weight"] == 3.0
-    assert plan[0]["execution_scale"] == 0.25
+    btc = next(row for row in plan if row["asset"] == "BTC")
+    assert btc["target_weight"] == 0.75
+    assert btc["model_target_weight"] == 3.0
+    assert btc["execution_scale"] == 0.25
