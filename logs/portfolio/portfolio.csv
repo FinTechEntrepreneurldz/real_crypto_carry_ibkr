@@ -2,3 +2,4 @@ timestamp_utc,portfolio_value,net_liquidation,currency,account_status,source,act
 2026-05-20T11:26:28.097972+00:00,1000490.05,1000490.05,USD,connected,ibkr_account_summary_net_liquidation,paper_rebalance,True
 2026-05-20T11:45:48.662818+00:00,1000138.58,1000138.58,USD,connected,ibkr_account_summary_net_liquidation,paper_rebalance,True
 2026-05-21T00:10:30.131070+00:00,1006177.89,1006177.89,USD,connected,ibkr_account_summary_net_liquidation,paper_rebalance,True
+2026-05-21T20:12:43.586289+00:00,1004926.75,1004926.75,USD,connected,ibkr_account_summary_net_liquidation,paper_rebalance,True
