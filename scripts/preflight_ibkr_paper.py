@@ -7,7 +7,7 @@ import argparse
 from pathlib import Path
 
 from real_crypto_carry_ibkr.dashboard_logs import mask_account
-from real_crypto_carry_ibkr.ibkr_execution import IBKRCarryExecutor, IBKRConfig, env_float, env_int
+from real_crypto_carry_ibkr.ibkr_execution import IBKRCarryExecutor, IBKRConfig, env_bool, env_float, env_int, resolve_managed_account
 
 
 def main() -> None:
@@ -16,6 +16,7 @@ def main() -> None:
     args = p.parse_args()
 
     account = os.environ.get("IBKR_ACCOUNT", "").strip()
+    requested_account = account
     port = env_int("IBKR_PORT", 7497)
     if not account:
         raise SystemExit("IBKR_ACCOUNT secret is required.")
@@ -32,12 +33,24 @@ def main() -> None:
     )
     with IBKRCarryExecutor(conn) as executor:
         managed_accounts = [str(a) for a in executor.ib.managedAccounts()]
-        if account not in managed_accounts:
-            raise SystemExit(
-                f"Connected to IBKR, but {mask_account(account)} is not in managed accounts: "
-                f"{[mask_account(a) for a in managed_accounts]}"
+        try:
+            resolved_account, auto_selected = resolve_managed_account(
+                account,
+                managed_accounts,
+                auto_select=env_bool("IBKR_AUTO_SELECT_MANAGED_ACCOUNT", True),
             )
+        except RuntimeError as exc:
+            raise SystemExit(str(exc)) from exc
+        if auto_selected:
+            print(
+                f"Requested IBKR_ACCOUNT={mask_account(account)} is not managed by this session; "
+                f"using the single managed paper account {mask_account(resolved_account)}."
+            )
+        account = resolved_account
+        os.environ["IBKR_ACCOUNT"] = resolved_account
         summary = executor.account_summary()
+        summary["requested_account_masked"] = mask_account(requested_account)
+        summary["account_auto_selected"] = auto_selected
 
     if args.output_json:
         path = Path(args.output_json)

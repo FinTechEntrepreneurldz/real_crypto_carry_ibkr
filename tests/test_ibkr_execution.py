@@ -1,7 +1,14 @@
 from ib_insync import Stock
 
 from real_crypto_carry_ibkr.dashboard_logs import count_order_submissions, mask_account
-from real_crypto_carry_ibkr.ibkr_execution import IBKRCarryExecutor, leg_reference_price, side_from_signed_qty, signed_qty, summary_key
+from real_crypto_carry_ibkr.ibkr_execution import (
+    IBKRCarryExecutor,
+    leg_reference_price,
+    resolve_managed_account,
+    side_from_signed_qty,
+    signed_qty,
+    summary_key,
+)
 
 
 def test_leg_reference_price_prefers_explicit_reference():
@@ -30,6 +37,27 @@ def test_summary_key_converts_ibkr_tags():
     assert summary_key("NetLiquidation") == "net_liquidation"
     assert summary_key("AvailableFunds") == "available_funds"
     assert summary_key("BuyingPower") == "buying_power"
+
+
+def test_resolve_managed_account_keeps_requested_match():
+    resolved, auto_selected = resolve_managed_account("DU1234574", ["DU1234574"], auto_select=True)
+    assert resolved == "DU1234574"
+    assert auto_selected is False
+
+
+def test_resolve_managed_account_auto_selects_single_paper_account():
+    resolved, auto_selected = resolve_managed_account("DU1234574", ["DUQ335143"], auto_select=True)
+    assert resolved == "DUQ335143"
+    assert auto_selected is True
+
+
+def test_resolve_managed_account_rejects_ambiguous_accounts():
+    try:
+        resolve_managed_account("DU1234574", ["DUQ335143", "DUQ304772"], auto_select=True)
+    except RuntimeError as exc:
+        assert "not in managed accounts" in str(exc)
+    else:
+        raise AssertionError("expected account mismatch to raise")
 
 
 def test_dashboard_log_helpers():

@@ -94,6 +94,24 @@ def execution_plan_order(row: dict[str, Any]) -> tuple[int, str]:
     return side_rank, str(row.get("asset") or "")
 
 
+def resolve_managed_account(requested_account: str, managed_accounts: list[str], auto_select: bool = True) -> tuple[str, bool]:
+    requested = str(requested_account or "").strip()
+    managed = [str(account or "").strip() for account in managed_accounts if str(account or "").strip()]
+    if requested in managed:
+        return requested, False
+
+    paper_accounts = [account for account in managed if account.upper().startswith("DU")]
+    if auto_select and len(paper_accounts) == 1:
+        return paper_accounts[0], True
+
+    masked_requested = requested[:2] + "***" + requested[-2:] if len(requested) >= 4 else requested
+    masked_managed = [account[:2] + "***" + account[-2:] if len(account) >= 4 else account for account in managed]
+    raise RuntimeError(
+        f"Connected to IBKR, but {masked_requested} is not in managed accounts: {masked_managed}. "
+        "Update the IBKR_ACCOUNT secret or set IBKR_AUTO_SELECT_MANAGED_ACCOUNT=true when the runner is logged into exactly one paper account."
+    )
+
+
 @dataclass
 class IBKRConfig:
     host: str = "127.0.0.1"

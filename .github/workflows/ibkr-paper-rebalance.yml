@@ -87,6 +87,7 @@ jobs:
       IBKR_ALLOW_LIVE_TRADING: "false"
       IBKR_ALLOW_MARKET_ORDERS: "true"
       IBKR_SUBMIT_ORDERS: ${{ github.event.inputs.submit_orders || 'true' }}
+      IBKR_AUTO_SELECT_MANAGED_ACCOUNT: ${{ vars.IBKR_AUTO_SELECT_MANAGED_ACCOUNT || 'true' }}
       IBKR_LONG_LEG_ORDER_TYPE: ${{ vars.IBKR_LONG_LEG_ORDER_TYPE || 'MKT' }}
       IBKR_LONG_LEG_LIMIT_OFFSET_BPS: ${{ vars.IBKR_LONG_LEG_LIMIT_OFFSET_BPS || '5' }}
       IBKR_ORDER_WAIT_SECONDS: ${{ vars.IBKR_ORDER_WAIT_SECONDS || '45' }}
@@ -158,6 +159,9 @@ jobs:
           from pathlib import Path
 
           summary = json.loads(Path("data/ibkr_account_summary.json").read_text(encoding="utf-8"))
+          resolved_account = str(summary.get("account") or "").strip()
+          if not resolved_account.upper().startswith("DU"):
+              raise SystemExit(f"Resolved IBKR account is not a paper account: {resolved_account!r}")
           basis = os.environ.get("IBKR_CAPITAL_BASIS", "buying_power").strip().lower()
           utilization = float(os.environ.get("IBKR_BUYING_POWER_UTILIZATION", "0.95"))
           if utilization <= 0:
@@ -184,8 +188,11 @@ jobs:
 
           sizing_capital = raw_value * utilization
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"resolved_account={resolved_account}\n")
               fh.write(f"sizing_capital={sizing_capital:.2f}\n")
               fh.write(f"capital_basis={basis}\n")
+          masked = resolved_account[:2] + "***" + resolved_account[-2:]
+          print(f"Resolved IBKR paper account for this run: {masked}")
           print(
               f"Sizing next artifact from IBKR {basis}={raw_value:.2f} "
               f"using key={raw_key}, utilization={utilization:.4f}, sizing_capital={sizing_capital:.2f}"
@@ -225,11 +232,15 @@ jobs:
       - name: Dry run rebalance
         if: steps.time_guard.outputs.run_rebalance == 'true'
         timeout-minutes: 3
+        env:
+          IBKR_ACCOUNT: ${{ steps.ibkr_preflight.outputs.resolved_account }}
         run: .venv/bin/python scripts/run_ibkr_rebalance.py --artifact-dir artifacts/latest --dry-run
 
       - name: Submit paper rebalance
         if: steps.time_guard.outputs.run_rebalance == 'true' && env.IBKR_SUBMIT_ORDERS == 'true'
         timeout-minutes: 5
+        env:
+          IBKR_ACCOUNT: ${{ steps.ibkr_preflight.outputs.resolved_account }}
         run: .venv/bin/python scripts/run_ibkr_rebalance.py --artifact-dir artifacts/latest
 
       - name: Commit dashboard logs
