@@ -1,9 +1,9 @@
 {
   "overall_status": "connected",
   "account_status": "connected",
-  "net_liquidation": 1004926.75,
+  "net_liquidation": 1003341.26,
   "currency": "USD",
   "source": "ibkr_account_summary_net_liquidation",
   "account_id_masked": "DU***74",
-  "updated_at_utc": "2026-05-21T20:12:43.586289+00:00"
+  "updated_at_utc": "2026-05-22T11:43:48.288319+00:00"
 }

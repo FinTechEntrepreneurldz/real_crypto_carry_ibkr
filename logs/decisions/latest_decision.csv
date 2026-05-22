@@ -1,2 +1,2 @@
 market_date,variant,action,submit_orders,account_status,account_value,net_liquidation,n_orders_submitted,timestamp_utc
-2026-05-21,real_crypto_regime_ibkr,paper_rebalance,True,connected,1004926.75,1004926.75,2,2026-05-21T20:12:43.586289+00:00
+2026-05-22,real_crypto_regime_ibkr,paper_rebalance,True,connected,1003341.26,1003341.26,1,2026-05-22T11:43:48.288319+00:00
