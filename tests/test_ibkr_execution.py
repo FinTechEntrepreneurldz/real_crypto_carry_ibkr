@@ -3,6 +3,7 @@ from ib_insync import Stock
 from real_crypto_carry_ibkr.dashboard_logs import count_order_submissions, mask_account
 from real_crypto_carry_ibkr.ibkr_execution import (
     IBKRCarryExecutor,
+    default_long_leg_notional_cap,
     leg_reference_price,
     resolve_managed_account,
     side_from_signed_qty,
@@ -80,3 +81,46 @@ def test_make_order_sets_tif_and_uses_fallback_quote(monkeypatch):
     assert order.account == "DU1234567"
     assert order.lmtPrice == 100.05
     assert "fallback_ref=100.0" in diag
+
+
+def test_default_long_leg_notional_cap_is_conservative_when_pair_cap_is_large(monkeypatch):
+    monkeypatch.setenv("IBKR_MAX_PAIR_NOTIONAL_USD", "2000000")
+    monkeypatch.delenv("IBKR_MAX_LONG_LEG_NOTIONAL_USD", raising=False)
+
+    assert default_long_leg_notional_cap() == 250_000
+
+
+def test_cap_long_leg_delta_caps_opening_stock_order_by_margin_budget(monkeypatch):
+    executor = IBKRCarryExecutor()
+    monkeypatch.setenv("IBKR_MAX_LONG_LEG_NOTIONAL_USD", "250000")
+    monkeypatch.setenv("IBKR_LONG_LEG_AVAILABLE_FUNDS_FRACTION", "0.20")
+    monkeypatch.setattr(executor, "account_summary", lambda: {"available_funds": 500_000})
+    contract = Stock("IBIT", "SMART", "USD")
+    contract.secType = "STK"
+
+    capped, diag = executor.cap_long_leg_delta(
+        contract,
+        {"secType": "STK", "reference_price": 50.0},
+        {"current_qty": 0, "delta_qty": 52_400, "side": "BUY", "quantity": 52_400},
+    )
+
+    assert capped["quantity"] == 2_000
+    assert capped["delta_qty"] == 2_000
+    assert "capped" in diag
+
+
+def test_cap_long_leg_delta_does_not_cap_reducing_stock_order(monkeypatch):
+    executor = IBKRCarryExecutor()
+    monkeypatch.setenv("IBKR_MAX_LONG_LEG_NOTIONAL_USD", "1000")
+    monkeypatch.setattr(executor, "account_summary", lambda: {"available_funds": 1_000})
+    contract = Stock("IBIT", "SMART", "USD")
+    contract.secType = "STK"
+
+    capped, diag = executor.cap_long_leg_delta(
+        contract,
+        {"secType": "STK", "reference_price": 50.0},
+        {"current_qty": 5_000, "delta_qty": -4_000, "side": "SELL", "quantity": 4_000},
+    )
+
+    assert capped["quantity"] == 4_000
+    assert diag == "not_capped_reducing"

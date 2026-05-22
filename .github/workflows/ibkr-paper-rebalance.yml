@@ -85,16 +85,18 @@ jobs:
       IBKR_TIMEOUT: ${{ vars.IBKR_TIMEOUT || '15' }}
       IBKR_REQUIRE_PAPER_TRADING: "true"
       IBKR_ALLOW_LIVE_TRADING: "false"
-      IBKR_ALLOW_MARKET_ORDERS: "true"
+      IBKR_ALLOW_MARKET_ORDERS: "false"
       IBKR_SUBMIT_ORDERS: ${{ github.event.inputs.submit_orders || 'true' }}
       IBKR_AUTO_SELECT_MANAGED_ACCOUNT: ${{ vars.IBKR_AUTO_SELECT_MANAGED_ACCOUNT || 'true' }}
-      IBKR_LONG_LEG_ORDER_TYPE: ${{ vars.IBKR_LONG_LEG_ORDER_TYPE || 'MKT' }}
+      IBKR_LONG_LEG_ORDER_TYPE: ${{ vars.IBKR_LONG_LEG_ORDER_TYPE || 'LIMIT' }}
       IBKR_LONG_LEG_LIMIT_OFFSET_BPS: ${{ vars.IBKR_LONG_LEG_LIMIT_OFFSET_BPS || '5' }}
+      IBKR_MAX_LONG_LEG_NOTIONAL_USD: ${{ vars.IBKR_MAX_LONG_LEG_NOTIONAL_USD || '250000' }}
+      IBKR_LONG_LEG_AVAILABLE_FUNDS_FRACTION: ${{ vars.IBKR_LONG_LEG_AVAILABLE_FUNDS_FRACTION || '0.20' }}
       IBKR_ORDER_WAIT_SECONDS: ${{ vars.IBKR_ORDER_WAIT_SECONDS || '45' }}
       IBKR_BETWEEN_ORDER_SLEEP_SECONDS: ${{ vars.IBKR_BETWEEN_ORDER_SLEEP_SECONDS || '2' }}
       IBKR_CANCEL_UNFILLED: ${{ vars.IBKR_CANCEL_UNFILLED || 'true' }}
       IBKR_EXECUTION_GROSS_CAP: ${{ vars.IBKR_EXECUTION_GROSS_CAP || '1.0' }}
-      IBKR_CAPITAL_BASIS: ${{ vars.IBKR_CAPITAL_BASIS || 'buying_power' }}
+      IBKR_CAPITAL_BASIS: ${{ vars.IBKR_CAPITAL_BASIS || 'net_liquidation' }}
       IBKR_BUYING_POWER_UTILIZATION: ${{ vars.IBKR_BUYING_POWER_UTILIZATION || '0.95' }}
 
     steps:
@@ -162,7 +164,7 @@ jobs:
           resolved_account = str(summary.get("account") or "").strip()
           if not resolved_account.upper().startswith("DU"):
               raise SystemExit(f"Resolved IBKR account is not a paper account: {resolved_account!r}")
-          basis = os.environ.get("IBKR_CAPITAL_BASIS", "buying_power").strip().lower()
+          basis = os.environ.get("IBKR_CAPITAL_BASIS", "net_liquidation").strip().lower()
           utilization = float(os.environ.get("IBKR_BUYING_POWER_UTILIZATION", "0.95"))
           if utilization <= 0:
               raise SystemExit("IBKR_BUYING_POWER_UTILIZATION must be positive.")

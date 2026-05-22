@@ -77,6 +77,14 @@ def side_from_signed_qty(qty: int | float) -> str:
     return "BUY" if float(qty) > 0 else "SELL"
 
 
+def default_long_leg_notional_cap() -> float:
+    explicit = os.environ.get("IBKR_MAX_LONG_LEG_NOTIONAL_USD")
+    if explicit not in (None, ""):
+        return max(0.0, float(explicit))
+    pair_cap = env_float("IBKR_MAX_PAIR_NOTIONAL_USD", 25_000.0)
+    return max(0.0, min(pair_cap, 250_000.0))
+
+
 def summary_key(tag: str) -> str:
     out = []
     for i, ch in enumerate(str(tag or "")):
@@ -355,6 +363,74 @@ class IBKRCarryExecutor:
             "quantity": abs(int(delta)),
         }
 
+    def cap_long_leg_delta(self, contract: Contract, leg: dict[str, Any], delta: dict[str, Any]) -> tuple[dict[str, Any], str]:
+        """Conservatively cap opening ETF/stock exposure using account margin room.
+
+        IBKR can reject an ETF leg even after the opposite leg submits because
+        security margin is not netted the way a model notional plan is. This
+        guard only caps orders that increase absolute exposure; pure reductions
+        and flattening orders pass through.
+        """
+        sec_type = str(getattr(contract, "secType", "") or leg.get("secType") or "STK").upper()
+        if sec_type != "STK" or float(delta.get("quantity", 0) or 0) <= 0:
+            return delta, "not_capped"
+
+        current = float(delta.get("current_qty", 0) or 0)
+        delta_qty = float(delta.get("delta_qty", 0) or 0)
+        target_after = current + delta_qty
+        if abs(target_after) <= abs(current):
+            return delta, "not_capped_reducing"
+
+        ref = leg_reference_price(leg)
+        if ref <= 0:
+            ref = _positive_float(leg.get("reference_price"))
+        if ref <= 0:
+            return delta, "not_capped_no_reference_price"
+
+        hard_cap = default_long_leg_notional_cap()
+        try:
+            summary = self.account_summary()
+        except Exception:
+            summary = {}
+        available_candidates = [
+            _positive_float(summary.get("available_funds")),
+            _positive_float(summary.get("excess_liquidity")),
+            _positive_float(summary.get("net_liquidation")),
+        ]
+        available_basis = next((value for value in available_candidates if value > 0), 0.0)
+        funds_fraction = max(0.0, env_float("IBKR_LONG_LEG_AVAILABLE_FUNDS_FRACTION", 0.20))
+        funds_cap = available_basis * funds_fraction if available_basis > 0 and funds_fraction > 0 else hard_cap
+        max_notional = min(hard_cap, funds_cap) if hard_cap > 0 else funds_cap
+        if max_notional <= 0:
+            capped = dict(delta)
+            capped["quantity"] = 0
+            capped["delta_qty"] = 0
+            return capped, "capped_to_zero_no_margin_budget"
+
+        max_qty = math.floor(max_notional / ref)
+        if max_qty <= 0:
+            capped = dict(delta)
+            capped["quantity"] = 0
+            capped["delta_qty"] = 0
+            return capped, f"capped_to_zero;ref={ref:.6f};max_notional={max_notional:.2f}"
+
+        requested = float(delta["quantity"])
+        if requested <= max_qty:
+            return delta, (
+                f"not_capped;requested_notional={requested * ref:.2f};"
+                f"max_notional={max_notional:.2f};available_basis={available_basis:.2f}"
+            )
+
+        capped = dict(delta)
+        capped["quantity"] = int(max_qty)
+        capped["delta_qty"] = int(max_qty) if str(delta.get("side", "")).upper() == "BUY" else -int(max_qty)
+        return capped, (
+            f"capped;requested_qty={requested};capped_qty={max_qty};"
+            f"ref={ref:.6f};requested_notional={requested * ref:.2f};"
+            f"max_notional={max_notional:.2f};available_basis={available_basis:.2f};"
+            f"hard_cap={hard_cap:.2f};funds_fraction={funds_fraction:.4f}"
+        )
+
     def wait_trade(self, trade, wait_seconds: float) -> dict[str, Any]:
         end = time.time() + wait_seconds
         while time.time() < end:
@@ -421,8 +497,9 @@ class IBKRCarryExecutor:
                     fill_ratio = 1.0
                 adj_target_qty = max(1, int(round(long_qty * fill_ratio)))
                 long_delta = self.rebalance_delta(stock, {**long_leg, "quantity_estimate": adj_target_qty})
+                long_delta, long_cap_diag = self.cap_long_leg_delta(stock, long_leg, long_delta)
                 if long_delta["quantity"] <= 0:
-                    item["legs"].append({"leg": "long", "diag": "already_at_target_or_open", **long_delta})
+                    item["legs"].append({"leg": "long", "diag": "already_at_target_or_open_or_capped", "cap_diag": long_cap_diag, **long_delta})
                     results.append(item)
                     continue
                 stock_order, stock_diag = self.make_order(
@@ -434,7 +511,7 @@ class IBKRCarryExecutor:
                 )
                 stock_trade = self.ib.placeOrder(stock, stock_order)
                 stock_stat = self.wait_trade(stock_trade, wait_seconds)
-                item["legs"].append({"leg": "long", "diag": stock_diag, **stock_stat})
+                item["legs"].append({"leg": "long", "diag": stock_diag, "cap_diag": long_cap_diag, **stock_stat})
             results.append(item)
             if not dry_run and row_index < len(ordered_plan) - 1 and between_order_sleep > 0:
                 self.ib.sleep(between_order_sleep)
