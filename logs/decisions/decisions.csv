@@ -6,3 +6,4 @@ market_date,variant,action,submit_orders,account_status,account_value,net_liquid
 2026-05-22,real_crypto_regime_ibkr,paper_rebalance,True,connected,1003341.26,1003341.26,1,2026-05-22T11:43:48.288319+00:00
 2026-05-22,real_crypto_regime_ibkr,paper_rebalance,True,connected,1001606.37,1001606.37,2,2026-05-22T12:02:33.734450+00:00
 2026-05-24,real_crypto_regime_ibkr,paper_rebalance,True,connected,1005684.77,1005684.77,2,2026-05-24T22:16:34.474486+00:00
+2026-05-24,real_crypto_regime_ibkr,paper_rebalance,True,connected,1005684.77,1005684.77,2,2026-05-24T22:22:45.949560+00:00
