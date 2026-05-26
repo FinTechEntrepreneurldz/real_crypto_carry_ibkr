@@ -219,14 +219,21 @@ jobs:
             --execution-gross-cap "${IBKR_EXECUTION_GROSS_CAP}"
 
       - name: Show status and plan
+        id: artifact_status
         if: steps.time_guard.outputs.run_rebalance == 'true'
         timeout-minutes: 1
         run: |
           .venv/bin/python - <<'PY'
+          import os
           import json
           from pathlib import Path
           status = json.loads(Path("artifacts/latest/status.json").read_text())
           plan = json.loads(Path("artifacts/latest/execution_plan_latest.json").read_text())
+          artifact_status = str(status.get("status"))
+          deployable = artifact_status in {"DEPLOYABLE_IBKR_CARRY", "DEPLOYABLE_IBKR_ETF_REGIME"}
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"deployable={str(deployable).lower()}\n")
+              fh.write(f"artifact_status={artifact_status}\n")
           print(json.dumps(status, indent=2))
           print(json.dumps(plan, indent=2))
           PY
@@ -239,11 +246,22 @@ jobs:
         run: .venv/bin/python scripts/run_ibkr_rebalance.py --artifact-dir artifacts/latest --dry-run
 
       - name: Submit paper rebalance
-        if: steps.time_guard.outputs.run_rebalance == 'true' && env.IBKR_SUBMIT_ORDERS == 'true'
+        if: steps.time_guard.outputs.run_rebalance == 'true' && steps.artifact_status.outputs.deployable == 'true' && env.IBKR_SUBMIT_ORDERS == 'true'
         timeout-minutes: 5
         env:
           IBKR_ACCOUNT: ${{ steps.ibkr_preflight.outputs.resolved_account }}
         run: .venv/bin/python scripts/run_ibkr_rebalance.py --artifact-dir artifacts/latest
+
+      - name: No paper order submitted
+        if: steps.time_guard.outputs.run_rebalance == 'true' && steps.artifact_status.outputs.deployable != 'true'
+        timeout-minutes: 1
+        run: |
+          echo "No IBKR order submitted because artifact_status=${{ steps.artifact_status.outputs.artifact_status }}."
+
+      - name: Write dashboard account snapshot without submitted orders
+        if: steps.time_guard.outputs.run_rebalance == 'true' && (steps.artifact_status.outputs.deployable != 'true' || env.IBKR_SUBMIT_ORDERS != 'true')
+        timeout-minutes: 1
+        run: .venv/bin/python scripts/write_dashboard_snapshot.py --account-summary data/ibkr_account_summary.json --log-dir logs
 
       - name: Commit dashboard logs
         if: steps.time_guard.outputs.run_rebalance == 'true'

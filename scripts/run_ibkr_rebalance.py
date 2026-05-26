@@ -17,11 +17,12 @@ def main() -> None:
     args = p.parse_args()
 
     status = read_json(f"{args.artifact_dir}/status.json")
+    dry_run = args.dry_run or not env_bool("IBKR_SUBMIT_ORDERS", False)
     deployable_statuses = {"DEPLOYABLE_IBKR_CARRY", "DEPLOYABLE_IBKR_ETF_REGIME"}
-    if status.get("status") not in deployable_statuses:
+    artifact_is_deployable = status.get("status") in deployable_statuses
+    if not artifact_is_deployable and not dry_run:
         raise RuntimeError(f"Artifact is not deployable: {status.get('status')} | {status.get('reason')}")
 
-    dry_run = args.dry_run or not env_bool("IBKR_SUBMIT_ORDERS", False)
     plan = load_execution_plan(args.artifact_dir)
     if dry_run:
         results = []
@@ -47,7 +48,20 @@ def main() -> None:
                 }
             )
             results.append(item)
-        print(json.dumps({"dry_run": True, "results": results}, indent=2, default=str))
+        print(
+            json.dumps(
+                {
+                    "dry_run": True,
+                    "artifact_status": status.get("status"),
+                    "artifact_reason": status.get("reason"),
+                    "deployable": artifact_is_deployable,
+                    "warning": None if artifact_is_deployable else "Artifact is not deployable; dry run only.",
+                    "results": results,
+                },
+                indent=2,
+                default=str,
+            )
+        )
         return
 
     conn = IBKRConfig(
