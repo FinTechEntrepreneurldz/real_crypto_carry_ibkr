@@ -2,7 +2,7 @@ name: IBKR Paper Rebalance
 
 permissions:
   actions: read
-  contents: write
+  contents: read
 
 on:
   workflow_dispatch:
@@ -263,35 +263,14 @@ jobs:
         timeout-minutes: 1
         run: .venv/bin/python scripts/write_dashboard_snapshot.py --account-summary data/ibkr_account_summary.json --log-dir logs
 
-      - name: Commit dashboard logs
+      - name: Upload dashboard logs artifact
         if: steps.time_guard.outputs.run_rebalance == 'true'
-        timeout-minutes: 3
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          files=()
-          for file in \
-            logs/portfolio/portfolio.csv \
-            logs/decisions/latest_decision.csv \
-            logs/decisions/decisions.csv \
-            logs/health/health_status.json
-          do
-            if [ -f "$file" ]; then
-              files+=("$file")
-            fi
-          done
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "No dashboard log files were produced."
-            exit 0
-          fi
-          git add -f "${files[@]}"
-          if git diff --cached --quiet; then
-            echo "No dashboard log changes to commit."
-          else
-            git commit -m "Update IBKR dashboard logs [skip ci]"
-            git pull --rebase --autostash origin main
-            git push
-          fi
+        uses: actions/upload-artifact@v4
+        with:
+          name: ibkr-dashboard-logs
+          path: logs/
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload artifact bundle
         if: always() && steps.time_guard.outputs.run_rebalance == 'true'
