@@ -2,7 +2,7 @@ name: IBKR Paper Rebalance
 
 permissions:
   actions: read
-  contents: write
+  contents: read
 
 on:
   workflow_dispatch:
@@ -263,48 +263,14 @@ jobs:
         timeout-minutes: 1
         run: .venv/bin/python scripts/write_dashboard_snapshot.py --account-summary data/ibkr_account_summary.json --log-dir logs
 
-      - name: Commit dashboard logs
+      - name: Upload dashboard logs artifact
         if: steps.time_guard.outputs.run_rebalance == 'true'
-        timeout-minutes: 5
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          files=()
-          for file in \
-            logs/portfolio/portfolio.csv \
-            logs/decisions/latest_decision.csv \
-            logs/decisions/decisions.csv \
-            logs/health/health_status.json
-          do
-            if [ -f "$file" ]; then
-              files+=("$file")
-            fi
-          done
-          if [ ${#files[@]} -eq 0 ]; then
-            echo "No dashboard log files were produced."
-            exit 0
-          fi
-          git add -f "${files[@]}"
-          if git diff --cached --quiet; then
-            echo "No dashboard log changes to commit."
-            exit 0
-          fi
-
-          git commit -m "Update IBKR dashboard logs [skip ci]"
-          for attempt in 1 2 3 4 5; do
-            echo "Pushing dashboard logs, attempt ${attempt}/5..."
-            git fetch real main || git fetch origin main
-            git rebase FETCH_HEAD
-            if git push real HEAD:main || git push origin HEAD:main; then
-              echo "Dashboard logs pushed."
-              exit 0
-            fi
-            sleep $((attempt * 10))
-          done
-
-          echo "Failed to push dashboard logs after retries."
-          exit 1
+        uses: actions/upload-artifact@v4
+        with:
+          name: ibkr-dashboard-logs
+          path: logs/
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload artifact bundle
         if: always() && steps.time_guard.outputs.run_rebalance == 'true'
