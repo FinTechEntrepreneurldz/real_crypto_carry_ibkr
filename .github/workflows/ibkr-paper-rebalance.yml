@@ -15,6 +15,18 @@ on:
           - "true"
           - "false"
         default: "true"
+      capital_basis:
+        description: "Capital basis for allocator-dispatched sizing"
+        required: false
+        default: ""
+      allocator_capital_utilization:
+        description: "Allocator sleeve weight to apply to the selected capital basis"
+        required: false
+        default: ""
+      max_pair_notional_usd:
+        description: "Allocator notional cap for this sleeve run"
+        required: false
+        default: ""
   schedule:
     # GitHub schedules are UTC. These two entries cover 9:30 AM New York
     # during daylight saving and standard time; a guard step below skips
@@ -95,9 +107,10 @@ jobs:
       IBKR_ORDER_WAIT_SECONDS: ${{ vars.IBKR_ORDER_WAIT_SECONDS || '45' }}
       IBKR_BETWEEN_ORDER_SLEEP_SECONDS: ${{ vars.IBKR_BETWEEN_ORDER_SLEEP_SECONDS || '2' }}
       IBKR_CANCEL_UNFILLED: ${{ vars.IBKR_CANCEL_UNFILLED || 'true' }}
+      IBKR_MAX_PAIR_NOTIONAL_USD: ${{ github.event.inputs.max_pair_notional_usd || vars.IBKR_MAX_PAIR_NOTIONAL_USD || '25000' }}
       IBKR_EXECUTION_GROSS_CAP: ${{ vars.IBKR_EXECUTION_GROSS_CAP || '1.0' }}
-      IBKR_CAPITAL_BASIS: ${{ vars.IBKR_CAPITAL_BASIS || 'net_liquidation' }}
-      IBKR_BUYING_POWER_UTILIZATION: ${{ vars.IBKR_BUYING_POWER_UTILIZATION || '0.95' }}
+      IBKR_CAPITAL_BASIS: ${{ github.event.inputs.capital_basis || vars.IBKR_CAPITAL_BASIS || 'net_liquidation' }}
+      IBKR_BUYING_POWER_UTILIZATION: ${{ github.event.inputs.allocator_capital_utilization || vars.IBKR_BUYING_POWER_UTILIZATION || '0.95' }}
 
     steps:
       - name: Check out repo
