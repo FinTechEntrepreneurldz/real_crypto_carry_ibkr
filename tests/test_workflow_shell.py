@@ -18,3 +18,9 @@ def test_workflow_dry_runs_but_only_submits_deployable_artifacts():
     assert "steps.artifact_status.outputs.deployable == 'true' && env.IBKR_SUBMIT_ORDERS == 'true'" in workflow
     assert "No paper order submitted" in workflow
     assert "Write dashboard account snapshot without submitted orders" in workflow
+
+
+def test_workflow_force_adds_ignored_dashboard_logs():
+    workflow = Path(".github/workflows/ibkr-paper-rebalance.yml").read_text(encoding="utf-8")
+
+    assert "git add -f logs/" in workflow
