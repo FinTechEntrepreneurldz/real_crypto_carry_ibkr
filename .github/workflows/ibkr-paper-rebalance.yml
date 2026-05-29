@@ -77,7 +77,7 @@ jobs:
                   matches.append(runner.get("name") or str(runner.get("id")))
 
           if not matches:
-              print("::error::No online repository macOS self-hosted runner found. Configure and start the Mac runner before triggering this workflow.")
+              print("::error::No online repository self-hosted runner found with the ibkr-paper label. Configure and start the Mac runner before triggering this workflow.")
               raise SystemExit(1)
 
           print("Found online Mac runner(s): " + ", ".join(matches))
@@ -86,7 +86,7 @@ jobs:
   rebalance:
     name: Pull data, build artifact, submit paper rebalance
     needs: runner-preflight
-    runs-on: [self-hosted, macOS, X64]
+    runs-on: [self-hosted, ibkr-paper]
     timeout-minutes: 25
     env:
       IBKR_ACCOUNT: ${{ secrets.IBKR_ACCOUNT }}
