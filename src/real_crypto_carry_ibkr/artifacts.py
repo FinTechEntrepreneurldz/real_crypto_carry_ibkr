@@ -52,6 +52,8 @@ def latest_execution_plan(positions: pd.DataFrame, cfg: dict) -> list[dict[str, 
     capital = float(s_cfg["capital_usd"])
     gross_cap = s_cfg.get("execution_gross_cap")
     gross_cap = float(gross_cap) if gross_cap is not None else None
+    max_pair_notional = s_cfg.get("max_pair_notional_usd")
+    max_pair_notional = float(max_pair_notional) if max_pair_notional is not None else None
     raw_gross = float(latest["target_weight"].abs().sum())
     execution_scale = 1.0
     if gross_cap is not None and raw_gross > gross_cap > 0:
@@ -61,10 +63,14 @@ def latest_execution_plan(positions: pd.DataFrame, cfg: dict) -> list[dict[str, 
         asset = str(row["asset"])
         asset_cfg = cfg["assets"].get(asset, {})
         model_weight = float(row.get("target_weight", 0.0) or 0.0)
-        execution_weight = model_weight * execution_scale
-        if abs(execution_weight) <= 0:
+        scaled_weight = model_weight * execution_scale
+        if abs(scaled_weight) <= 0:
             continue
-        notional = capital * abs(execution_weight)
+        requested_notional = capital * abs(scaled_weight)
+        notional = requested_notional
+        if max_pair_notional is not None and max_pair_notional > 0:
+            notional = min(notional, max_pair_notional)
+        execution_weight = (1.0 if scaled_weight > 0 else -1.0) * (notional / capital) if capital > 0 else 0.0
         long_px = float(row["long_close"])
         multiplier = float(asset_cfg.get("multiplier", 1.0))
         hedge_ratio = float(cfg["strategy"].get("hedge_ratio", 1.0))
@@ -111,6 +117,8 @@ def latest_execution_plan(positions: pd.DataFrame, cfg: dict) -> list[dict[str, 
                 "execution_scale": execution_scale,
                 "capital_usd": capital,
                 "execution_gross_cap": gross_cap,
+                "max_pair_notional_usd": max_pair_notional,
+                "requested_notional_usd": requested_notional,
             }
         )
     return sorted(rows, key=execution_plan_order)

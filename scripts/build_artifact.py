@@ -26,6 +26,12 @@ def main() -> None:
         default=None,
         help="Cap latest execution-plan gross notional as a multiple of capital, e.g. 1.0 for full account gross exposure.",
     )
+    p.add_argument(
+        "--max-pair-notional-usd",
+        type=float,
+        default=None,
+        help="Cap each latest execution-plan pair notional in USD.",
+    )
     args = p.parse_args()
 
     cfg = load_config(args.config)
@@ -33,6 +39,8 @@ def main() -> None:
         cfg["strategy"]["capital_usd"] = float(args.capital_usd)
     if args.execution_gross_cap is not None:
         cfg["strategy"]["execution_gross_cap"] = float(args.execution_gross_cap)
+    if args.max_pair_notional_usd is not None:
+        cfg["strategy"]["max_pair_notional_usd"] = float(args.max_pair_notional_usd)
     provenance = build_provenance(args.curve_csv, args.long_prices_csv, args.data_source, cfg)
     curve = load_curve(args.curve_csv)
     prices = load_long_prices(args.long_prices_csv)

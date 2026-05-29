@@ -71,3 +71,36 @@ def test_latest_execution_plan_uses_capital_and_gross_cap():
     assert btc["target_weight"] == 0.75
     assert btc["model_target_weight"] == 3.0
     assert btc["execution_scale"] == 0.25
+
+
+def test_latest_execution_plan_caps_pair_notional():
+    positions = pd.DataFrame(
+        [
+            {
+                "date": pd.Timestamp("2026-05-20"),
+                "asset": "BTC",
+                "target_weight": 0.50,
+                "long_close": 50.0,
+                "future_settle": pd.NA,
+                "basis_ann": 0.0,
+                "long_symbol": "IBIT",
+            }
+        ]
+    )
+    cfg = {
+        "strategy": {
+            "capital_usd": 1_000_000,
+            "execution_gross_cap": 1.0,
+            "max_pair_notional_usd": 25_000,
+            "hedge_ratio": 0.0,
+        },
+        "assets": {"BTC": {"long_symbol": "IBIT"}},
+    }
+
+    plan = latest_execution_plan(positions, cfg)
+
+    assert plan[0]["long_leg"]["notional_usd"] == 25_000
+    assert plan[0]["long_leg"]["quantity_estimate"] == 500
+    assert plan[0]["target_weight"] == 0.025
+    assert plan[0]["requested_notional_usd"] == 500_000
+    assert plan[0]["max_pair_notional_usd"] == 25_000

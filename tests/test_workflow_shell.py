@@ -8,6 +8,7 @@ def test_workflow_defaults_to_limit_orders_and_runtime_notional_guard():
     assert "IBKR_LONG_LEG_ORDER_TYPE: ${{ vars.IBKR_LONG_LEG_ORDER_TYPE || 'LIMIT' }}" in workflow
     assert "IBKR_MAX_LONG_LEG_NOTIONAL_USD" in workflow
     assert "IBKR_LONG_LEG_AVAILABLE_FUNDS_FRACTION" in workflow
+    assert "--max-pair-notional-usd" in workflow
     assert "IBKR_CAPITAL_BASIS: ${{ github.event.inputs.capital_basis || vars.IBKR_CAPITAL_BASIS || 'net_liquidation' }}" in workflow
     assert "IBKR_BUYING_POWER_UTILIZATION: ${{ github.event.inputs.allocator_capital_utilization || vars.IBKR_BUYING_POWER_UTILIZATION || '0.95' }}" in workflow
 
