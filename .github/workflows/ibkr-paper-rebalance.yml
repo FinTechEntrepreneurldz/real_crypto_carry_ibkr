@@ -44,7 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Check for online ibkr-paper runner
+      - name: Check for online macOS IBKR runner
         timeout-minutes: 2
         env:
           GH_TOKEN: ${{ secrets.RUNNER_ADMIN_TOKEN || github.token }}
@@ -77,16 +77,16 @@ jobs:
                   matches.append(runner.get("name") or str(runner.get("id")))
 
           if not matches:
-              print("::error::No online repository self-hosted runner found with the ibkr-paper label. Configure and start the Mac runner before triggering this workflow.")
+              print("::error::No online repository self-hosted macOS/X64 runner found. Configure and start the Mac runner before triggering this workflow.")
               raise SystemExit(1)
 
-          print("Found online Mac runner(s): " + ", ".join(matches))
+          print("Found online eligible Mac runner(s): " + ", ".join(matches))
           PY
 
   rebalance:
     name: Pull data, build artifact, submit paper rebalance
     needs: runner-preflight
-    runs-on: [self-hosted, ibkr-paper]
+    runs-on: [self-hosted, macOS, X64]
     timeout-minutes: 25
     env:
       IBKR_ACCOUNT: ${{ secrets.IBKR_ACCOUNT }}
